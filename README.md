@@ -40,6 +40,9 @@ ktop -r 2
 
 # Start with a specific theme
 ktop --theme "Tokyo Night"
+
+# Simulation mode (fake OOM kills, profiling to /tmp/ktop_profile.log)
+ktop --sim
 ```
 
 ### Keybindings
@@ -53,8 +56,9 @@ ktop --theme "Tokyo Night"
 
 ## Requirements
 
+- Linux (reads `/proc` directly for performance)
 - Python 3.8+
-- NVIDIA GPU + drivers (optional — CPU/memory monitoring works without a GPU)
+- NVIDIA GPU + drivers (optional — CPU/memory/network monitoring works without a GPU)
 - Dependencies: `psutil`, `rich`, `pynvml`
 
 ## License

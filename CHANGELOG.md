@@ -1,16 +1,26 @@
 # Changelog
 
+## 0.7.0 — 2026-02-10
+
+- Process scanning optimized: replaced `psutil.process_iter` with direct `/proc/pid/stat` + `/proc/pid/statm` reads (214ms → 23ms per scan, ~9x faster)
+- Process list cached for 5 seconds instead of rescanning every frame
+- Added `--sim` flag for simulation mode (fake OOM kills, profiling output to `/tmp/ktop_profile.log`)
+- Profiler logs avg/max/calls per section every 5s in sim mode
+- Total frame time reduced from ~228ms to ~56ms (~4x improvement)
+- OOM kill tracker now uses `journalctl` for persistent 8-hour lookback instead of `dmesg` kernel ring buffer
+- OOM status shows solid block `█` when OOM detected, hollow `░` when clear
+- Tested: profiled with `--sim`, reinstalled via setup.sh
+
 ## 0.6.0 — 2026-02-10
 
 - Network panel: sparklines now centered between bar charts — upload sparkline extends upward, download sparkline extends downward using upper-block Unicode characters
 - Added `SPARK_DOWN` character set and `_sparkline_down()` for top-down sparklines
 - Network upload and download now have separate theme colors (`net_up` defaults to GPU color, `net_down` defaults to net color)
 - Theme picker swatches updated to show net_up/net_down colors
-- Status bar now shows most recent OOM kill (process name + timestamp) on the right side, checked every 5 seconds via dmesg
-- Temperature strip border now uses theme `bar_mid` color instead of grey
-- Temperature strip with evenly-spaced entries using Table columns
+- Status bar now shows most recent OOM kill (process name + timestamp) on the right side
+- Temperature strip between charts and process tables with hardware-accurate thresholds (GPU slowdown from NVML, CPU critical from psutil, 85°C JEDEC for memory)
+- Temperature strip border uses theme `bar_mid` color; entries evenly spaced
 - GPU bar charts now use dynamic width matching CPU/memory panel sizing
-- Hardware-accurate temperature thresholds (GPU slowdown limit from NVML, CPU critical from psutil, 85°C JEDEC default for memory)
 - Tested: reinstalled via setup.sh
 
 ## 0.5.0 — 2026-02-10
