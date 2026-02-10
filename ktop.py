@@ -344,6 +344,11 @@ class KTop:
             self._prof_log = Path("/tmp/ktop_profile.log")
             self._prof_log.write_text(f"ktop profile started {datetime.now().isoformat()}\n")
 
+        # CPU info (static, cache once)
+        self._cpu_cores = psutil.cpu_count(logical=True)
+        self._cpu_freq_str = "N/A"
+        self._last_freq_check = 0.0
+
         psutil.cpu_percent(interval=None)
 
     # ── data collectors ──────────────────────────────────────────────────
@@ -580,9 +585,13 @@ class KTop:
         t = self.theme
         pct = self._sample_cpu()
         c = _color_for(pct, t)
-        cores = psutil.cpu_count(logical=True)
-        freq = psutil.cpu_freq()
-        freq_str = f"{freq.current:.0f} MHz" if freq else "N/A"
+        # Refresh frequency every 5s, core count is cached from init
+        now = time.monotonic()
+        if now - self._last_freq_check >= 5.0:
+            self._last_freq_check = now
+            freq = psutil.cpu_freq()
+            if freq:
+                self._cpu_freq_str = f"{freq.current:.0f} MHz"
 
         # Panel inner width: third of terminal minus border(2) + padding(2) + safety(2)
         panel_w = max(20, self.console.width // 3 - 6)
@@ -592,7 +601,7 @@ class KTop:
         spark = _sparkline(self.cpu_hist, width=spark_w)
         body = (
             f"[bold]Overall[/bold]  {_bar(pct, bar_w, t)} [{c}]{pct:5.1f}%[/{c}]\n"
-            f"[dim]Cores: {cores}  Freq: {freq_str}[/dim]\n\n"
+            f"[dim]Cores: {self._cpu_cores}  Freq: {self._cpu_freq_str}[/dim]\n\n"
             f"[bold]History[/bold]\n         [{c}]{spark}[/{c}]"
         )
         return Panel(
