@@ -81,10 +81,6 @@ if [ "$NEED_SUDO" = false ]; then
     esac
 fi
 
-echo "==> Done!"
-if command -v ktop &>/dev/null; then
-    echo "    Run 'ktop' from anywhere."
-else
-    echo "    Run: $INSTALL_PATH"
-    echo "    To use 'ktop' everywhere, open a new terminal or run: source ~/.bashrc"
-fi
+echo "==> Done! Launching ktop..."
+echo "    Next time just run: ktop (open a new terminal if not found)"
+exec "$INSTALL_PATH" "$@"

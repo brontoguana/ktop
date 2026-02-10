@@ -20,7 +20,7 @@ A terminal-based system resource monitor built for tracking resource usage when 
 ## Install
 
 ```bash
-git clone https://github.com/brontoguana/ktop.git && cd ktop && ./setup.sh && ~/.local/bin/ktop
+git clone https://github.com/brontoguana/ktop.git && cd ktop && ./setup.sh
 ```
 
 That's it — clones the repo, installs dependencies into a venv, adds `ktop` to `~/.local/bin`, and launches it.
