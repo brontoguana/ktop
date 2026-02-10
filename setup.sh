@@ -66,13 +66,17 @@ if [ "$NEED_SUDO" = false ]; then
         *":$INSTALL_DIR:"*) ;;
         *)
             export PATH="$INSTALL_DIR:$PATH"
-            # Persist to shell profile
-            for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-                if [ -f "$rc" ] && ! grep -q "$INSTALL_DIR" "$rc" 2>/dev/null; then
-                    echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$rc"
-                fi
-            done
-            echo "    Added $INSTALL_DIR to PATH"
+            # Offer to persist to shell profile
+            printf "    Add $INSTALL_DIR to PATH in shell config? [Y/n] "
+            read -r reply
+            if [ -z "$reply" ] || [ "$reply" = "y" ] || [ "$reply" = "Y" ]; then
+                for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+                    if [ -f "$rc" ] && ! grep -q "$INSTALL_DIR" "$rc" 2>/dev/null; then
+                        echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$rc"
+                        echo "    Updated $(basename "$rc")"
+                    fi
+                done
+            fi
             ;;
     esac
 fi
