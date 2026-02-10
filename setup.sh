@@ -26,7 +26,20 @@ echo "    Target: $INSTALL_PATH"
 # 1. Create/update virtual environment
 if [ ! -d "$VENV_DIR" ]; then
     echo "    Creating virtual environment..."
-    python3 -m venv "$VENV_DIR"
+    if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
+        echo "    python3-venv not found, installing it..."
+        if command -v apt-get &>/dev/null; then
+            sudo apt-get install -y python3-venv
+        elif command -v dnf &>/dev/null; then
+            sudo dnf install -y python3-libs
+        elif command -v pacman &>/dev/null; then
+            sudo pacman -S --noconfirm python
+        else
+            echo "ERROR: python3-venv is required. Install it with your package manager."
+            exit 1
+        fi
+        python3 -m venv "$VENV_DIR"
+    fi
 fi
 
 echo "    Installing dependencies..."
