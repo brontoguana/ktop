@@ -27,7 +27,7 @@ git clone https://github.com/aemiguel/ktop.git && cd ktop && ./setup.sh && ktop
 
 That's it — clones the repo, installs dependencies into a venv, adds `ktop` to `~/.local/bin`, and launches it.
 
-For a system-wide install (requires sudo): `./setup.sh --system`
+For a system-wide install: `sudo ./setup.sh --system`
 
 ## Usage
 
