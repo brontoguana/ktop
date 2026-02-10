@@ -454,9 +454,11 @@ class KTop:
         nc = t["net"]
         body = (
             f"[bold]Up  [/bold] {_bar(up_pct, bar_w, t)} [{nc}]{_fmt_speed(up):>10}[/{nc}]\n"
+            f"\n"
             f"     [{nc}]{spark_up}[/{nc}]\n"
             f"\n"
             f"[bold]Down[/bold] {_bar(down_pct, bar_w, t)} [{nc}]{_fmt_speed(down):>10}[/{nc}]\n"
+            f"\n"
             f"     [{nc}]{spark_dn}[/{nc}]\n"
             f"\n"
             f"[dim]Peak: {_fmt_speed(mx)}[/dim]"
