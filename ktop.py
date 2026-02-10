@@ -17,6 +17,7 @@ import tty
 from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import psutil
 from rich.color import Color
@@ -321,9 +322,27 @@ class KTop:
             except Exception:
                 pass
 
+        # process cache (scanned at most every 5s, read from /proc directly)
+        self._procs_by_mem: list[dict] = []
+        self._procs_by_cpu: list[dict] = []
+        self._last_proc_scan = 0.0
+        self._proc_cpu_prev: dict[int, int] = {}
+        self._page_size = os.sysconf("SC_PAGE_SIZE")
+        self._clock_ticks = os.sysconf("SC_CLK_TCK")
+        self._num_cpus = os.cpu_count() or 1
+
         # OOM kill tracking
         self._last_oom_check = 0.0
         self._last_oom_str: str | None = None
+
+        # profiling (sim mode only)
+        self._prof_log: Path | None = None
+        self._prof_accum: dict[str, list[float]] = {}
+        self._prof_last_flush = 0.0
+        self._prof_frame = 0
+        if self.sim:
+            self._prof_log = Path("/tmp/ktop_profile.log")
+            self._prof_log.write_text(f"ktop profile started {datetime.now().isoformat()}\n")
 
         psutil.cpu_percent(interval=None)
 
@@ -420,18 +439,60 @@ class KTop:
                 pass
         return gpus
 
-    def _top_procs(self, key: str, n: int = 10) -> list[dict]:
+    def _scan_procs(self) -> None:
+        """Scan process list from /proc directly, cached for 5 seconds."""
+        now = time.monotonic()
+        if now - self._last_proc_scan < 5.0 and self._procs_by_mem:
+            return
+        dt = now - self._last_proc_scan if self._last_proc_scan > 0 else 1.0
+        self._last_proc_scan = now
+        total_mem = psutil.virtual_memory().total
+        ps = self._page_size
         procs = []
-        for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent", "memory_info"]):
-            try:
-                info = p.info
-                if info["pid"] == 0:
-                    continue
-                procs.append(info)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+        for pid_str in os.listdir("/proc"):
+            if not pid_str.isdigit():
                 continue
-        procs.sort(key=lambda x: x.get(key, 0) or 0, reverse=True)
-        return procs[:n]
+            pid = int(pid_str)
+            if pid == 0:
+                continue
+            try:
+                with open(f"/proc/{pid}/stat") as f:
+                    stat = f.read()
+                # Name is between first ( and last ) to handle parens in names
+                i0 = stat.index("(") + 1
+                i1 = stat.rindex(")")
+                name = stat[i0:i1]
+                fields = stat[i1 + 2:].split()
+                utime = int(fields[11])   # field 14
+                stime = int(fields[12])   # field 15
+                rss_pages = int(fields[21])  # field 24
+                with open(f"/proc/{pid}/statm") as f:
+                    shared_pages = int(f.read().split()[2])
+                rss = rss_pages * ps
+                shared = shared_pages * ps
+                mem_pct = rss / total_mem * 100 if total_mem else 0
+                cpu_total = utime + stime
+                prev = self._proc_cpu_prev.get(pid, cpu_total)
+                cpu_delta = cpu_total - prev
+                self._proc_cpu_prev[pid] = cpu_total
+                cpu_pct = (cpu_delta / self._clock_ticks) / dt / self._num_cpus * 100 if dt > 0 else 0
+                procs.append({
+                    "pid": pid, "name": name[:28],
+                    "cpu_percent": cpu_pct, "memory_percent": mem_pct,
+                    "memory_info": SimpleNamespace(rss=rss, shared=shared),
+                })
+            except (FileNotFoundError, PermissionError, IndexError, ValueError, ProcessLookupError, OSError):
+                continue
+        # Clean stale PIDs
+        current = {p["pid"] for p in procs}
+        self._proc_cpu_prev = {k: v for k, v in self._proc_cpu_prev.items() if k in current}
+        self._procs_by_mem = sorted(procs, key=lambda x: x.get("memory_percent", 0) or 0, reverse=True)[:10]
+        self._procs_by_cpu = sorted(procs, key=lambda x: x.get("cpu_percent", 0) or 0, reverse=True)[:10]
+
+    def _top_procs(self, key: str) -> list[dict]:
+        if key == "memory_percent":
+            return self._procs_by_mem
+        return self._procs_by_cpu
 
     _SIM_PROCS = ["python3", "node", "java", "ollama", "vllm", "ffmpeg", "cc1plus", "rustc", "chrome", "mysqld"]
 
@@ -814,10 +875,48 @@ class KTop:
         outer["hint"].update(hint)
         return outer
 
+    # ── profiling helpers ────────────────────────────────────────────────
+    def _prof_time(self, label: str, fn):
+        """Time a callable, accumulate result if profiling."""
+        if not self._prof_log:
+            return fn()
+        t0 = time.perf_counter()
+        result = fn()
+        dt = (time.perf_counter() - t0) * 1000  # ms
+        self._prof_accum.setdefault(label, []).append(dt)
+        return result
+
+    def _prof_flush(self) -> None:
+        """Write accumulated profile stats to log every 5 seconds."""
+        if not self._prof_log:
+            return
+        now = time.monotonic()
+        if now - self._prof_last_flush < 5.0:
+            return
+        self._prof_last_flush = now
+        if not self._prof_accum:
+            return
+        lines = [f"\n── frame {self._prof_frame} @ {datetime.now().strftime('%H:%M:%S')} ──\n"]
+        lines.append(f"{'Section':<20} {'avg ms':>8} {'max ms':>8} {'calls':>6}\n")
+        lines.append(f"{'─' * 20} {'─' * 8} {'─' * 8} {'─' * 6}\n")
+        total_avg = 0.0
+        for label, times in sorted(self._prof_accum.items()):
+            avg = sum(times) / len(times)
+            mx = max(times)
+            total_avg += avg
+            lines.append(f"{label:<20} {avg:8.2f} {mx:8.2f} {len(times):6d}\n")
+        lines.append(f"{'─' * 20} {'─' * 8} {'─' * 8} {'─' * 6}\n")
+        lines.append(f"{'TOTAL':<20} {total_avg:8.2f}\n")
+        with open(self._prof_log, "a") as f:
+            f.writelines(lines)
+        self._prof_accum.clear()
+
     # ── main layout ──────────────────────────────────────────────────────
     def _build(self) -> Layout:
         if self.picking_theme:
             return self._theme_picker()
+
+        self._prof_frame += 1
 
         layout = Layout()
         layout.split_column(
@@ -837,15 +936,17 @@ class KTop:
             Layout(name="cpu_procs", ratio=1),
         )
 
-        layout["gpu"].update(self._gpu_panels())
-        layout["net"].update(self._net_panel())
-        layout["cpu"].update(self._cpu_panel())
-        layout["mem"].update(self._mem_panel())
-        layout["mem_procs"].update(self._proc_table("memory_percent"))
-        layout["cpu_procs"].update(self._proc_table("cpu_percent"))
-        layout["temps"].update(self._temp_strip())
-        layout["status"].update(self._status_bar())
+        self._prof_time("scan_procs", self._scan_procs)
+        layout["gpu"].update(self._prof_time("gpu_panels", self._gpu_panels))
+        layout["net"].update(self._prof_time("net_panel", self._net_panel))
+        layout["cpu"].update(self._prof_time("cpu_panel", self._cpu_panel))
+        layout["mem"].update(self._prof_time("mem_panel", self._mem_panel))
+        layout["mem_procs"].update(self._prof_time("proc_table_mem", lambda: self._proc_table("memory_percent")))
+        layout["cpu_procs"].update(self._prof_time("proc_table_cpu", lambda: self._proc_table("cpu_percent")))
+        layout["temps"].update(self._prof_time("temp_strip", self._temp_strip))
+        layout["status"].update(self._prof_time("status_bar", self._status_bar))
 
+        self._prof_flush()
         return layout
 
     # ── input handling ───────────────────────────────────────────────────
@@ -917,7 +1018,8 @@ class KTop:
                     # Redraw immediately on keypress, or on refresh interval
                     now = time.monotonic()
                     if key or now - last_refresh >= self.refresh:
-                        live.update(self._build())
+                        built = self._build()
+                        self._prof_time("rich_render", lambda: live.update(built))
                         if not key:
                             last_refresh = now
         finally:
