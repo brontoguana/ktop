@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ktop"
+version = "0.1.0"
+description = "Terminal system resource monitor for hybrid LLM workloads"
+authors = [{name = "brontoguana", email = "brontoguana@users.noreply.github.com"}]
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+keywords = ["monitor", "system", "gpu", "cpu", "memory", "terminal"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Monitoring",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "psutil>=5.9",
+    "rich>=13.0",
+    "pynvml>=11.5",
+]
+
+packages = [
+ { from="src", name="ktop" },
+]
+
+[project.scripts]
+ktop = "ktop:main"
+

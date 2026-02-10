@@ -1,6 +1,6 @@
 # ktop
 
-![ktop screenshot](screenshot.png?v=2)
+![ktop screenshot](static/screenshot.png?v=2)
 
 A terminal-based system resource monitor built for tracking resource usage when running hybrid LLM workloads.
 
@@ -20,12 +20,17 @@ A terminal-based system resource monitor built for tracking resource usage when 
 ## Install
 
 ```bash
-git clone https://github.com/brontoguana/ktop.git && cd ktop && ./setup.sh
+# Install with uv (recommended)
+uv tool install --from=git+https://github.com/brontoguana/ktop ktop
 ```
 
-That's it — clones the repo, installs dependencies into a venv, adds `ktop` to `~/.local/bin`, and launches it.
+Or run directly without (separately) installing:
 
-For a system-wide install: `sudo ./setup.sh --system`
+```bash
+uvx --from=git+https://github.com/brontoguana/ktop ktop
+```
+
+**Note:** `uvx` is included with [`uv`](https://astral.sh/uv). See the uv documentation for installation instructions.
 
 ## Usage
 

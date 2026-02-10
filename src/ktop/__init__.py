@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-"""ktop - Terminal system resource monitor for hybrid LLM workloads."""
 from __future__ import annotations
 
 import argparse
@@ -771,4 +769,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
