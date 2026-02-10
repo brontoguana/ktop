@@ -6,34 +6,18 @@ A terminal-based system resource monitor built for tracking resource usage when 
 
 ## Features
 
-- **GPU Monitoring** — Per-GPU utilization and memory usage with rolling sparkline history (NVIDIA)
-- **CPU Monitoring** — Overall CPU usage with bar chart and sparkline history
-- **Memory Monitoring** — RAM and swap usage with progress bars
-- **Process Tables** — Top 10 processes by memory and CPU usage, updated in real-time
-- **Color-coded** — Green/yellow/red thresholds so you can spot pressure at a glance
+- **GPU Monitoring** — Per-GPU utilization and memory usage with color-coded sparkline history (NVIDIA)
+- **Network Monitoring** — Upload and download speeds with auto-scaling bar charts and sparklines
+- **CPU Monitoring** — Overall CPU usage with gradient bar chart and sparkline history
+- **Memory Monitoring** — RAM and swap usage with gradient progress bars
+- **Process Tables** — Top 10 processes by memory (Used/Shared) and CPU usage, updated in real-time
+- **50 Color Themes** — Press `t` to browse and switch themes with live preview; persists across sessions
+- **Gradient Bar Charts** — Smooth per-block color gradients from low to high across all bars
+- **Responsive UI** — 50ms input polling for snappy keyboard navigation
 
 ## Screenshot
 
-```
-╭──────────────────── GPU Utilization & Memory ─────────────────────╮
-│ GPU 0  NVIDIA RTX 2000 Ada Generation                             │
-│   Util  ████████░░░░░░░ 52.0%  ▁▃▅▇█▇▅▃                         │
-│   Mem   ██████████░░░░░ 8.2/16.0 GB                              │
-│ GPU 1  NVIDIA RTX 2000 Ada Generation                             │
-│   Util  ████░░░░░░░░░░░ 28.0%  ▁▂▃▄▃▂                           │
-│   Mem   ███░░░░░░░░░░░░ 4.1/16.0 GB                              │
-╰───────────────────────────────────────────────────────────────────╯
-╭────────── CPU ──────────╮╭────────── Memory ─────────╮
-│ Overall ██████░░░ 45.1% ││ RAM  ████░░░░░░ 16.6%     │
-│ Cores: 128              ││ Used: 165 GB / 995 GB     │
-│ History ▁▃▅▇█▇▅▃▁▃▅    ││ Swap  ░░░░░░░░░  0.0%     │
-╰─────────────────────────╯╰───────────────────────────╯
-╭── Top Processes (Memory) ─╮╭── Top Processes (CPU) ────╮
-│ PID     Name      Mem %   ││ PID     Name      CPU %   │
-│ 12345   python3   37.9%   ││ 12345   python    106.3%  │
-│ ...                       ││ ...                       │
-╰───────────────────────────╯╰───────────────────────────╯
-```
+![ktop screenshot](screenshot.png)
 
 ## Quick Install
 
@@ -59,9 +43,19 @@ ktop
 
 # Custom refresh rate
 ktop -r 2
+
+# Start with a specific theme
+ktop --theme "Tokyo Night"
 ```
 
-Press `Ctrl+C` to exit.
+### Keybindings
+
+| Key | Action |
+|-----|--------|
+| `q` / `ESC` | Quit |
+| `t` | Open theme picker |
+| Arrow keys | Navigate theme picker |
+| `Enter` | Select theme |
 
 ## Requirements
 
