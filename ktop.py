@@ -14,6 +14,7 @@ from collections import deque
 from pathlib import Path
 
 import psutil
+from rich.color import Color
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
@@ -42,7 +43,7 @@ except ImportError:
 
 # ── constants ────────────────────────────────────────────────────────────────
 SPARK = " ▁▂▃▄▅▆▇█"
-HISTORY_LEN = 60
+HISTORY_LEN = 300
 CONFIG_DIR = Path.home() / ".config" / "ktop"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
@@ -51,8 +52,8 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 THEMES: dict[str, dict] = {}
 
 
-def _t(name, gpu, cpu, mem, pm, pc, lo, mid, hi):
-    THEMES[name] = dict(gpu=gpu, cpu=cpu, mem=mem, proc_mem=pm, proc_cpu=pc, bar_low=lo, bar_mid=mid, bar_high=hi)
+def _t(name, gpu, cpu, mem, pm, pc, lo, mid, hi, net=None):
+    THEMES[name] = dict(gpu=gpu, cpu=cpu, mem=mem, proc_mem=pm, proc_cpu=pc, bar_low=lo, bar_mid=mid, bar_high=hi, net=net or cpu)
 
 
 # ── Classic & editor themes ──
@@ -134,20 +135,40 @@ def _save_config(cfg: dict) -> None:
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+_rgb_cache: dict[str, tuple[int, int, int]] = {}
+
+
+def _color_to_rgb(name: str) -> tuple[int, int, int]:
+    """Parse a Rich color name or hex string to (r, g, b). Cached."""
+    if name not in _rgb_cache:
+        tc = Color.parse(name).get_truecolor()
+        _rgb_cache[name] = (tc.red, tc.green, tc.blue)
+    return _rgb_cache[name]
+
+
+def _lerp_rgb(c1: tuple[int, int, int], c2: tuple[int, int, int], t: float) -> str:
+    """Linearly interpolate two RGB tuples, return hex string."""
+    r = int(c1[0] + (c2[0] - c1[0]) * t)
+    g = int(c1[1] + (c2[1] - c1[1]) * t)
+    b = int(c1[2] + (c2[2] - c1[2]) * t)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def _bar(pct: float, width: int = 25, theme: dict | None = None) -> str:
-    """Render a coloured progress bar as Rich markup."""
+    """Render a smooth gradient progress bar as Rich markup."""
     filled = int(pct / 100 * width)
     empty = width - filled
-    if theme:
-        if pct < 50:
-            c = theme["bar_low"]
-        elif pct < 80:
-            c = theme["bar_mid"]
-        else:
-            c = theme["bar_high"]
-    else:
-        c = "green" if pct < 50 else ("yellow" if pct < 80 else "red")
-    return f"[{c}]{'█' * filled}[/{c}][dim]{'░' * empty}[/dim]"
+    rgb_lo = _color_to_rgb(theme["bar_low"] if theme else "green")
+    rgb_hi = _color_to_rgb(theme["bar_high"] if theme else "red")
+
+    parts = []
+    for i in range(filled):
+        t = i / max(width - 1, 1)
+        c = _lerp_rgb(rgb_lo, rgb_hi, t)
+        parts.append(f"[{c}]█[/{c}]")
+    if empty:
+        parts.append(f"[dim]{'░' * empty}[/dim]")
+    return "".join(parts)
 
 
 def _color_for(pct: float, theme: dict | None = None) -> str:
@@ -179,43 +200,49 @@ def _sparkline(values, width: int | None = None) -> str:
 
 
 def _fmt_bytes(b: float) -> str:
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if abs(b) < 1024:
-            return f"{b:.1f} {unit}"
-        b /= 1024
-    return f"{b:.1f} PB"
+    mb = b / 1024**2
+    if mb >= 1024:
+        return f"{mb / 1024:.1f} GB"
+    return f"{mb:.1f} MB"
+
+
+def _fmt_speed(b: float) -> str:
+    """Format bytes/sec as human-readable speed."""
+    if b >= 1024**3:
+        return f"{b / 1024**3:.1f} GB/s"
+    if b >= 1024**2:
+        return f"{b / 1024**2:.1f} MB/s"
+    if b >= 1024:
+        return f"{b / 1024:.1f} KB/s"
+    return f"{b:.0f} B/s"
 
 
 # ── keyboard input ───────────────────────────────────────────────────────────
 def _read_key() -> str | None:
     """Non-blocking read of a single keypress. Returns key name or None."""
-    if not select.select([sys.stdin], [], [], 0)[0]:
+    fd = sys.stdin.fileno()
+    if not select.select([fd], [], [], 0)[0]:
         return None
-    ch = sys.stdin.read(1)
-    if ch == "\x1b":
-        # Possible escape sequence
-        if select.select([sys.stdin], [], [], 0.05)[0]:
-            seq = sys.stdin.read(1)
-            if seq == "[":
-                code = sys.stdin.read(1)
-                if code == "A":
-                    return "UP"
-                if code == "B":
-                    return "DOWN"
-                if code == "C":
-                    return "RIGHT"
-                if code == "D":
-                    return "LEFT"
-                # consume rest
-                while select.select([sys.stdin], [], [], 0)[0]:
-                    sys.stdin.read(1)
-                return None
-            # consume rest
-            while select.select([sys.stdin], [], [], 0)[0]:
-                sys.stdin.read(1)
+    data = os.read(fd, 64)
+    if not data:
+        return None
+    if data[0] == 0x1B:
+        if len(data) >= 3 and data[1] == ord("["):
+            code = data[2]
+            if code == ord("A"):
+                return "UP"
+            if code == ord("B"):
+                return "DOWN"
+            if code == ord("C"):
+                return "RIGHT"
+            if code == ord("D"):
+                return "LEFT"
             return None
-        return "ESC"
-    if ch == "\r" or ch == "\n":
+        if len(data) == 1:
+            return "ESC"
+        return None
+    ch = chr(data[0])
+    if ch in ("\r", "\n"):
         return "ENTER"
     return ch
 
@@ -228,7 +255,7 @@ class KTop:
 
         # theme
         cfg = _load_config()
-        theme_name = cfg.get("theme", "Default")
+        theme_name = cfg.get("theme", "Vaporwave")
         if theme_name not in THEMES:
             theme_name = "Default"
         self.theme_name = theme_name
@@ -241,6 +268,15 @@ class KTop:
 
         # rolling histories
         self.cpu_hist: deque[float] = deque(maxlen=HISTORY_LEN)
+
+        # network state
+        self.net_up_hist: deque[float] = deque(maxlen=HISTORY_LEN)
+        self.net_down_hist: deque[float] = deque(maxlen=HISTORY_LEN)
+        self.net_max_speed: float = 1.0  # auto-scale ceiling in bytes/sec
+        counters = psutil.net_io_counters()
+        self._last_net_sent = counters.bytes_sent
+        self._last_net_recv = counters.bytes_recv
+        self._last_net_time = time.monotonic()
 
         # GPU init
         self.gpu_ok = False
@@ -266,6 +302,24 @@ class KTop:
         pct = psutil.cpu_percent(interval=None)
         self.cpu_hist.append(pct)
         return pct
+
+    def _sample_net(self) -> tuple[float, float]:
+        """Sample network and return (upload_bytes_sec, download_bytes_sec)."""
+        counters = psutil.net_io_counters()
+        now = time.monotonic()
+        dt = now - self._last_net_time
+        if dt <= 0:
+            dt = 1.0
+        up = (counters.bytes_sent - self._last_net_sent) / dt
+        down = (counters.bytes_recv - self._last_net_recv) / dt
+        self._last_net_sent = counters.bytes_sent
+        self._last_net_recv = counters.bytes_recv
+        self._last_net_time = now
+        # Auto-scale: track max observed speed
+        self.net_max_speed = max(self.net_max_speed, up, down, 1.0)
+        self.net_up_hist.append(up)
+        self.net_down_hist.append(down)
+        return up, down
 
     def _gpu_info(self) -> list[dict]:
         gpus = []
@@ -321,18 +375,21 @@ class KTop:
             )
 
         gpu_layout = Layout()
+        # Panel inner width: total / num_gpus, minus border(2) + padding(2) + indent(5) + margin(4)
+        spark_w = max(10, self.console.width // max(len(gpus), 1) - 13)
         children = []
         for g in gpus:
             uc = _color_for(g["util"], t)
             mc = _color_for(g["mem_pct"], t)
-            spark_u = _sparkline(self.gpu_util_hist[g["id"]], width=20)
-            spark_m = _sparkline(self.gpu_mem_hist[g["id"]], width=20)
+            spark_u = _sparkline(self.gpu_util_hist[g["id"]], width=spark_w)
+            spark_m = _sparkline(self.gpu_mem_hist[g["id"]], width=spark_w)
             body = (
                 f"[bold]Util[/bold] {_bar(g['util'], 15, t)} [{uc}]{g['util']:5.1f}%[/{uc}]\n"
-                f"      {spark_u}\n"
+                f"     [{uc}]{spark_u}[/{uc}]\n"
+                f"\n"
                 f"[bold]Mem [/bold] {_bar(g['mem_pct'], 15, t)} [{mc}]{g['mem_pct']:5.1f}%[/{mc}]\n"
-                f"      {g['mem_used_gb']:.1f}/{g['mem_total_gb']:.1f} GB\n"
-                f"      {spark_m}"
+                f"     {g['mem_used_gb']:.1f}/{g['mem_total_gb']:.1f} GB\n"
+                f"     [{mc}]{spark_m}[/{mc}]"
             )
             name_short = g["name"].replace("NVIDIA ", "").replace(" Generation", "")
             panel = Panel(
@@ -356,16 +413,58 @@ class KTop:
         freq = psutil.cpu_freq()
         freq_str = f"{freq.current:.0f} MHz" if freq else "N/A"
 
-        spark = _sparkline(self.cpu_hist)
+        # Panel inner width: third of terminal minus border(2) + padding(2) + safety(2)
+        panel_w = max(20, self.console.width // 3 - 6)
+        # "Overall  " = 9 chars, " XX.X%" = 7 chars (space + 5-wide float + %)
+        bar_w = max(5, panel_w - 9 - 7)
+        spark_w = max(10, panel_w - 9)
+        spark = _sparkline(self.cpu_hist, width=spark_w)
         body = (
-            f"[bold]Overall[/bold]  {_bar(pct, 30, t)} [{c}]{pct:5.1f}%[/{c}]\n"
+            f"[bold]Overall[/bold]  {_bar(pct, bar_w, t)} [{c}]{pct:5.1f}%[/{c}]\n"
             f"[dim]Cores: {cores}  Freq: {freq_str}[/dim]\n\n"
-            f"[bold]History[/bold]\n{spark}"
+            f"[bold]History[/bold]\n         [{c}]{spark}[/{c}]"
         )
         return Panel(
             Text.from_markup(body),
             title=f"[bold {t['cpu']}] CPU [/bold {t['cpu']}]",
             border_style=t["cpu"],
+        )
+
+    def _net_panel(self) -> Panel:
+        t = self.theme
+        up, down = self._sample_net()
+        mx = self.net_max_speed
+        up_pct = min(100.0, up / mx * 100) if mx else 0
+        down_pct = min(100.0, down / mx * 100) if mx else 0
+
+        # Panel inner width: third of terminal minus border(2) + padding(2) + safety(2)
+        panel_w = max(20, self.console.width // 3 - 6)
+        # "Up   " / "Down " = 5 chars, " XXXXXXX" speed = 11 chars
+        bar_w = max(5, panel_w - 5 - 11)
+        spark_w = max(10, panel_w - 5)
+        spark_up = _sparkline(
+            [min(100.0, v / mx * 100) if mx else 0 for v in self.net_up_hist],
+            width=spark_w,
+        )
+        spark_dn = _sparkline(
+            [min(100.0, v / mx * 100) if mx else 0 for v in self.net_down_hist],
+            width=spark_w,
+        )
+
+        nc = t["net"]
+        body = (
+            f"[bold]Up  [/bold] {_bar(up_pct, bar_w, t)} [{nc}]{_fmt_speed(up):>10}[/{nc}]\n"
+            f"     [{nc}]{spark_up}[/{nc}]\n"
+            f"\n"
+            f"[bold]Down[/bold] {_bar(down_pct, bar_w, t)} [{nc}]{_fmt_speed(down):>10}[/{nc}]\n"
+            f"     [{nc}]{spark_dn}[/{nc}]\n"
+            f"\n"
+            f"[dim]Peak: {_fmt_speed(mx)}[/dim]"
+        )
+        return Panel(
+            Text.from_markup(body),
+            title=f"[bold {nc}] Network [/bold {nc}]",
+            border_style=nc,
         )
 
     def _mem_panel(self) -> Panel:
@@ -376,11 +475,15 @@ class KTop:
         used_pct = vm.percent
         c = _color_for(used_pct, t)
 
+        # Panel inner width: third of terminal minus border(2) + padding(2) + safety(2)
+        panel_w = max(20, self.console.width // 3 - 6)
+        # "RAM  " / "Swap " = 5 chars, " XX.X%" = 7 chars (space + 5-wide float + %)
+        bar_w = max(5, panel_w - 5 - 7)
         body = (
-            f"[bold]RAM[/bold]  {_bar(used_pct, 30, t)} [{c}]{used_pct:5.1f}%[/{c}]\n"
-            f"  Used: {_fmt_bytes(vm.used)}  Free: {_fmt_bytes(vm.available)}  Total: {_fmt_bytes(vm.total)}\n\n"
-            f"[bold]Swap[/bold] {_bar(sw.percent, 30, t)} [dim]{sw.percent:5.1f}%[/dim]\n"
-            f"  Used: {_fmt_bytes(sw.used)}  Total: {_fmt_bytes(sw.total)}"
+            f"[bold]RAM[/bold]  {_bar(used_pct, bar_w, t)} [{c}]{used_pct:5.1f}%[/{c}]\n"
+            f"  {_fmt_bytes(vm.used)} used / {_fmt_bytes(vm.total)}\n\n"
+            f"[bold]Swap[/bold] {_bar(sw.percent, bar_w, t)} [dim]{sw.percent:5.1f}%[/dim]\n"
+            f"  {_fmt_bytes(sw.used)} used / {_fmt_bytes(sw.total)}"
         )
         return Panel(
             Text.from_markup(body),
@@ -399,8 +502,9 @@ class KTop:
         table.add_column("PID", style="dim", width=8, justify="right")
         table.add_column("Name", ratio=2)
         if is_mem:
-            table.add_column("RSS", justify="right", width=10)
-            table.add_column("Mem %", justify="right", width=8)
+            table.add_column("Used", justify="right", width=10)
+            table.add_column("Shared", justify="right", width=10)
+            table.add_column("Mem %", justify="right", width=7)
         else:
             table.add_column("CPU %", justify="right", width=8)
             table.add_column("Mem %", justify="right", width=8)
@@ -412,8 +516,14 @@ class KTop:
             cpu_pct = p.get("cpu_percent") or 0
             if is_mem:
                 mi = p.get("memory_info")
-                rss = _fmt_bytes(mi.rss) if mi else "N/A"
-                table.add_row(pid, name, rss, f"{mem_pct:.1f}%")
+                if mi:
+                    mi_shared = getattr(mi, "shared", 0) or 0
+                    used = _fmt_bytes(max(0, mi.rss - mi_shared))
+                    shared = _fmt_bytes(mi_shared)
+                else:
+                    used = "N/A"
+                    shared = "N/A"
+                table.add_row(pid, name, used, shared, f"{mem_pct:.1f}%")
             else:
                 table.add_row(pid, name, f"{cpu_pct:.1f}%", f"{mem_pct:.1f}%")
 
@@ -457,14 +567,35 @@ class KTop:
                 if i < total:
                     name = THEME_NAMES[i]
                     th = THEMES[name]
+                    # Name column
+                    name_text = Text()
                     if i == cursor:
-                        # Highlighted
-                        cells.append(Text(f" > {name} ", style=f"bold reverse {th['gpu']}"))
+                        name_text.append(" > ", style="bold")
+                        name_text.append(name, style=f"bold reverse {th['gpu']}")
                     elif name == self.theme_name:
-                        # Current active theme
-                        cells.append(Text(f"   {name} *", style=f"bold {th['gpu']}"))
+                        name_text.append("   ", style="")
+                        name_text.append(name, style=f"bold {th['gpu']}")
+                        name_text.append(" *", style="dim")
                     else:
-                        cells.append(Text(f"   {name}", style=f"{th['gpu']}"))
+                        name_text.append("   ", style="")
+                        name_text.append(name, style=f"{th['gpu']}")
+                    # Swatch column — background-colored chips with gaps
+                    swatch = Text()
+                    swatch.append("  ", style=f"on {th['gpu']}")
+                    swatch.append(" ")
+                    swatch.append("  ", style=f"on {th['net']}")
+                    swatch.append(" ")
+                    swatch.append("  ", style=f"on {th['cpu']}")
+                    swatch.append(" ")
+                    swatch.append("  ", style=f"on {th['mem']}")
+                    swatch.append(" ")
+                    swatch.append("  ", style=f"on {th['bar_mid']}")
+                    # Nested table for left name + right-aligned swatches
+                    cell = Table(box=None, pad_edge=False, show_header=False, expand=True)
+                    cell.add_column(ratio=1)
+                    cell.add_column(justify="right")
+                    cell.add_row(name_text, swatch)
+                    cells.append(cell)
                 else:
                     cells.append(Text(""))
             table.add_row(*cells)
@@ -475,9 +606,10 @@ class KTop:
         sample_bar = _bar(65, 20, preview)
         preview_text = Text.from_markup(
             f"\n[bold]Preview:[/bold] {preview_name}\n"
-            f"  GPU [{preview['gpu']}]{'━' * 8}[/{preview['gpu']}]  "
-            f"CPU [{preview['cpu']}]{'━' * 8}[/{preview['cpu']}]  "
-            f"Mem [{preview['mem']}]{'━' * 8}[/{preview['mem']}]\n"
+            f"  GPU [{preview['gpu']}]{'━' * 6}[/{preview['gpu']}]  "
+            f"Net [{preview['net']}]{'━' * 6}[/{preview['net']}]  "
+            f"CPU [{preview['cpu']}]{'━' * 6}[/{preview['cpu']}]  "
+            f"Mem [{preview['mem']}]{'━' * 6}[/{preview['mem']}]\n"
             f"  Bar: {sample_bar}"
         )
 
@@ -519,6 +651,7 @@ class KTop:
             Layout(name="status", size=1),
         )
         layout["mid"].split_row(
+            Layout(name="net", ratio=1),
             Layout(name="cpu", ratio=1),
             Layout(name="mem", ratio=1),
         )
@@ -528,6 +661,7 @@ class KTop:
         )
 
         layout["gpu"].update(self._gpu_panels())
+        layout["net"].update(self._net_panel())
         layout["cpu"].update(self._cpu_panel())
         layout["mem"].update(self._mem_panel())
         layout["mem_procs"].update(self._proc_table("memory_percent"))
@@ -595,12 +729,19 @@ class KTop:
                 screen=True,
                 refresh_per_second=4,
             ) as live:
+                last_refresh = time.monotonic()
                 while True:
-                    time.sleep(self.refresh)
+                    # Poll for keys at ~50ms intervals for responsive input
+                    time.sleep(0.05)
                     key = _read_key()
                     if self._handle_key(key):
                         break
-                    live.update(self._build())
+                    # Redraw immediately on keypress, or on refresh interval
+                    now = time.monotonic()
+                    if key or now - last_refresh >= self.refresh:
+                        live.update(self._build())
+                        if not key:
+                            last_refresh = now
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
             _cleanup()
