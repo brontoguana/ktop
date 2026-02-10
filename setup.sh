@@ -60,11 +60,22 @@ else
 fi
 rm -f "$WRAPPER"
 
+# 3. Ensure ~/.local/bin is in PATH
+if [ "$NEED_SUDO" = false ]; then
+    case ":$PATH:" in
+        *":$INSTALL_DIR:"*) ;;
+        *)
+            export PATH="$INSTALL_DIR:$PATH"
+            # Persist to shell profile
+            for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+                if [ -f "$rc" ] && ! grep -q "$INSTALL_DIR" "$rc" 2>/dev/null; then
+                    echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$rc"
+                fi
+            done
+            echo "    Added $INSTALL_DIR to PATH"
+            ;;
+    esac
+fi
+
 echo "==> Done! Run 'ktop' from anywhere."
 echo "    Options: ktop -r 2  (2-second refresh)"
-
-# Check PATH
-case ":$PATH:" in
-    *":$INSTALL_DIR:"*) ;;
-    *) echo "    NOTE: Add $INSTALL_DIR to your PATH if it's not already there." ;;
-esac
