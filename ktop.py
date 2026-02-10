@@ -2,6 +2,7 @@
 """ktop - Terminal system resource monitor for hybrid LLM workloads."""
 
 import argparse
+import json
 import os
 import select
 import signal
@@ -10,9 +11,9 @@ import termios
 import time
 import tty
 from collections import deque
+from pathlib import Path
 
 import psutil
-from rich.columns import Columns
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
@@ -42,10 +43,120 @@ except ImportError:
 # ── constants ────────────────────────────────────────────────────────────────
 SPARK = " ▁▂▃▄▅▆▇█"
 HISTORY_LEN = 60
+CONFIG_DIR = Path.home() / ".config" / "ktop"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+
+# ── themes ───────────────────────────────────────────────────────────────────
+# Each theme: (gpu, cpu, mem, proc_mem, proc_cpu, bar_low, bar_mid, bar_high)
+THEMES: dict[str, dict] = {}
+
+
+def _t(name, gpu, cpu, mem, pm, pc, lo, mid, hi):
+    THEMES[name] = dict(gpu=gpu, cpu=cpu, mem=mem, proc_mem=pm, proc_cpu=pc, bar_low=lo, bar_mid=mid, bar_high=hi)
+
+
+# ── Classic & editor themes ──
+_t("Default",            "magenta",      "cyan",         "green",        "green",        "cyan",         "green",    "yellow",   "red")
+_t("Monokai",           "bright_magenta","bright_cyan",  "bright_green", "bright_green", "bright_cyan",  "green",    "yellow",   "red")
+_t("Dracula",           "#bd93f9",       "#8be9fd",      "#50fa7b",      "#50fa7b",      "#8be9fd",      "#50fa7b",  "#f1fa8c",  "#ff5555")
+_t("Nord",              "#b48ead",       "#88c0d0",      "#a3be8c",      "#a3be8c",      "#88c0d0",      "#a3be8c",  "#ebcb8b",  "#bf616a")
+_t("Solarized",         "#d33682",       "#2aa198",      "#859900",      "#859900",      "#2aa198",      "#859900",  "#b58900",  "#dc322f")
+_t("Gruvbox",           "#d3869b",       "#83a598",      "#b8bb26",      "#b8bb26",      "#83a598",      "#b8bb26",  "#fabd2f",  "#fb4934")
+_t("One Dark",          "#c678dd",       "#56b6c2",      "#98c379",      "#98c379",      "#56b6c2",      "#98c379",  "#e5c07b",  "#e06c75")
+_t("Tokyo Night",       "#bb9af7",       "#7dcfff",      "#9ece6a",      "#9ece6a",      "#7dcfff",      "#9ece6a",  "#e0af68",  "#f7768e")
+_t("Catppuccin Mocha",  "#cba6f7",       "#89dceb",      "#a6e3a1",      "#a6e3a1",      "#89dceb",      "#a6e3a1",  "#f9e2af",  "#f38ba8")
+_t("Catppuccin Latte",  "#8839ef",       "#04a5e5",      "#40a02b",      "#40a02b",      "#04a5e5",      "#40a02b",  "#df8e1d",  "#d20f39")
+_t("Rosé Pine",         "#c4a7e7",       "#9ccfd8",      "#31748f",      "#31748f",      "#9ccfd8",      "#31748f",  "#f6c177",  "#eb6f92")
+_t("Everforest",        "#d699b6",       "#7fbbb3",      "#a7c080",      "#a7c080",      "#7fbbb3",      "#a7c080",  "#dbbc7f",  "#e67e80")
+_t("Kanagawa",          "#957fb8",       "#7e9cd8",      "#98bb6c",      "#98bb6c",      "#7e9cd8",      "#98bb6c",  "#e6c384",  "#c34043")
+
+# ── Monochrome / minimal ──
+_t("Monochrome",        "white",         "white",        "white",        "white",        "white",        "bright_white","white",  "dim white")
+_t("Green Screen",      "green",         "green",        "green",        "green",        "green",        "bright_green","green",  "dark_green")
+_t("Amber",             "#ffbf00",       "#ffbf00",      "#ffbf00",      "#ffbf00",      "#ffbf00",      "#ffd700",  "#ffbf00",  "#ff8c00")
+_t("Phosphor",          "#33ff00",       "#33ff00",      "#33ff00",      "#33ff00",      "#33ff00",      "#66ff33",  "#33ff00",  "#009900")
+
+# ── Color themes ──
+_t("Ocean",             "#6c5ce7",       "#0984e3",      "#00b894",      "#00b894",      "#0984e3",      "#00b894",  "#fdcb6e",  "#d63031")
+_t("Sunset",            "#e17055",       "#fdcb6e",      "#fab1a0",      "#fab1a0",      "#fdcb6e",      "#ffeaa7",  "#e17055",  "#d63031")
+_t("Forest",            "#00b894",       "#55efc4",      "#00cec9",      "#00cec9",      "#55efc4",      "#55efc4",  "#ffeaa7",  "#e17055")
+_t("Lava",              "#ff6348",       "#ff4757",      "#ff6b81",      "#ff6b81",      "#ff4757",      "#ffa502",  "#ff6348",  "#ff3838")
+_t("Arctic",            "#dfe6e9",       "#74b9ff",      "#81ecec",      "#81ecec",      "#74b9ff",      "#81ecec",  "#74b9ff",  "#a29bfe")
+_t("Sakura",            "#fd79a8",       "#e84393",      "#fab1a0",      "#fab1a0",      "#e84393",      "#fab1a0",  "#fd79a8",  "#e84393")
+_t("Mint",              "#00b894",       "#00cec9",      "#55efc4",      "#55efc4",      "#00cec9",      "#55efc4",  "#81ecec",  "#ff7675")
+_t("Lavender",          "#a29bfe",       "#6c5ce7",      "#dfe6e9",      "#dfe6e9",      "#6c5ce7",      "#a29bfe",  "#6c5ce7",  "#fd79a8")
+_t("Coral",             "#ff7675",       "#fab1a0",      "#ffeaa7",      "#ffeaa7",      "#fab1a0",      "#ffeaa7",  "#ff7675",  "#d63031")
+_t("Cyberpunk",         "#ff00ff",       "#00ffff",      "#ff00aa",      "#ff00aa",      "#00ffff",      "#00ff00",  "#ffff00",  "#ff0000")
+_t("Neon",              "#ff6ec7",       "#00ffff",      "#39ff14",      "#39ff14",      "#00ffff",      "#39ff14",  "#ffff00",  "#ff073a")
+_t("Synthwave",         "#f72585",       "#4cc9f0",      "#7209b7",      "#7209b7",      "#4cc9f0",      "#4cc9f0",  "#f72585",  "#ff0a54")
+_t("Vaporwave",         "#ff71ce",       "#01cdfe",      "#05ffa1",      "#05ffa1",      "#01cdfe",      "#05ffa1",  "#b967ff",  "#ff71ce")
+_t("Matrix",            "#00ff41",       "#008f11",      "#003b00",      "#003b00",      "#008f11",      "#00ff41",  "#008f11",  "#003b00")
+
+# ── Pastel & soft ──
+_t("Pastel",            "#c39bd3",       "#85c1e9",      "#82e0aa",      "#82e0aa",      "#85c1e9",      "#82e0aa",  "#f9e79f",  "#f1948a")
+_t("Soft",              "#bb8fce",       "#76d7c4",      "#7dcea0",      "#7dcea0",      "#76d7c4",      "#7dcea0",  "#f0b27a",  "#ec7063")
+_t("Cotton Candy",      "#ffb3ba",       "#bae1ff",      "#baffc9",      "#baffc9",      "#bae1ff",      "#baffc9",  "#ffffba",  "#ffb3ba")
+_t("Ice Cream",         "#ff9a9e",       "#a1c4fd",      "#c2e9fb",      "#c2e9fb",      "#a1c4fd",      "#c2e9fb",  "#ffecd2",  "#ff9a9e")
+
+# ── Bold & vivid ──
+_t("Electric",          "#7b2ff7",       "#00d4ff",      "#00ff87",      "#00ff87",      "#00d4ff",      "#00ff87",  "#ffd000",  "#ff0055")
+_t("Inferno",           "#ff4500",       "#ff6a00",      "#ff8c00",      "#ff8c00",      "#ff6a00",      "#ffd700",  "#ff8c00",  "#ff0000")
+_t("Glacier",           "#e0f7fa",       "#80deea",      "#4dd0e1",      "#4dd0e1",      "#80deea",      "#80deea",  "#4dd0e1",  "#00838f")
+_t("Twilight",          "#7c4dff",       "#448aff",      "#18ffff",      "#18ffff",      "#448aff",      "#18ffff",  "#7c4dff",  "#ff1744")
+_t("Autumn",            "#d35400",       "#e67e22",      "#f39c12",      "#f39c12",      "#e67e22",      "#f1c40f",  "#e67e22",  "#c0392b")
+_t("Spring",            "#e91e63",       "#00bcd4",      "#8bc34a",      "#8bc34a",      "#00bcd4",      "#8bc34a",  "#ffeb3b",  "#f44336")
+_t("Summer",            "#ff9800",       "#03a9f4",      "#4caf50",      "#4caf50",      "#03a9f4",      "#4caf50",  "#ffeb3b",  "#f44336")
+_t("Winter",            "#9c27b0",       "#3f51b5",      "#607d8b",      "#607d8b",      "#3f51b5",      "#607d8b",  "#9c27b0",  "#e91e63")
+
+# ── High contrast / accessibility ──
+_t("High Contrast",     "bright_magenta","bright_cyan",  "bright_green", "bright_green", "bright_cyan",  "bright_green","bright_yellow","bright_red")
+_t("Blueprint",         "#4fc3f7",       "#29b6f6",      "#03a9f4",      "#03a9f4",      "#29b6f6",      "#4fc3f7",  "#0288d1",  "#01579b")
+_t("Redshift",          "#ef5350",       "#e53935",      "#c62828",      "#c62828",      "#e53935",      "#ef9a9a",  "#ef5350",  "#b71c1c")
+_t("Emerald",           "#66bb6a",       "#43a047",      "#2e7d32",      "#2e7d32",      "#43a047",      "#a5d6a7",  "#66bb6a",  "#1b5e20")
+_t("Royal",             "#7e57c2",       "#5c6bc0",      "#42a5f5",      "#42a5f5",      "#5c6bc0",      "#42a5f5",  "#7e57c2",  "#d32f2f")
+_t("Bubblegum",         "#ff77a9",       "#ff99cc",      "#ffb3d9",      "#ffb3d9",      "#ff99cc",      "#ffb3d9",  "#ff77a9",  "#ff3385")
+_t("Horizon",           "#e95678",       "#fab795",      "#25b0bc",      "#25b0bc",      "#fab795",      "#25b0bc",  "#fab795",  "#e95678")
+
+THEME_NAMES = list(THEMES.keys())
+
+
+# ── config persistence ───────────────────────────────────────────────────────
+def _load_config() -> dict:
+    try:
+        return json.loads(CONFIG_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def _save_config(cfg: dict) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(json.dumps(cfg, indent=2) + "\n")
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
-def _color_for(pct: float) -> str:
+def _bar(pct: float, width: int = 25, theme: dict | None = None) -> str:
+    """Render a coloured progress bar as Rich markup."""
+    filled = int(pct / 100 * width)
+    empty = width - filled
+    if theme:
+        if pct < 50:
+            c = theme["bar_low"]
+        elif pct < 80:
+            c = theme["bar_mid"]
+        else:
+            c = theme["bar_high"]
+    else:
+        c = "green" if pct < 50 else ("yellow" if pct < 80 else "red")
+    return f"[{c}]{'█' * filled}[/{c}][dim]{'░' * empty}[/dim]"
+
+
+def _color_for(pct: float, theme: dict | None = None) -> str:
+    if theme:
+        if pct < 50:
+            return theme["bar_low"]
+        if pct < 80:
+            return theme["bar_mid"]
+        return theme["bar_high"]
     if pct < 50:
         return "green"
     if pct < 80:
@@ -53,16 +164,7 @@ def _color_for(pct: float) -> str:
     return "red"
 
 
-def _bar(pct: float, width: int = 25) -> str:
-    """Render a coloured progress bar as Rich markup."""
-    filled = int(pct / 100 * width)
-    empty = width - filled
-    c = _color_for(pct)
-    return f"[{c}]{'█' * filled}[/{c}][dim]{'░' * empty}[/dim]"
-
-
 def _sparkline(values, width: int | None = None) -> str:
-    """Return a sparkline string from values in 0-100 range."""
     if not values:
         return ""
     vals = list(values)
@@ -84,11 +186,58 @@ def _fmt_bytes(b: float) -> str:
     return f"{b:.1f} PB"
 
 
+# ── keyboard input ───────────────────────────────────────────────────────────
+def _read_key() -> str | None:
+    """Non-blocking read of a single keypress. Returns key name or None."""
+    if not select.select([sys.stdin], [], [], 0)[0]:
+        return None
+    ch = sys.stdin.read(1)
+    if ch == "\x1b":
+        # Possible escape sequence
+        if select.select([sys.stdin], [], [], 0.05)[0]:
+            seq = sys.stdin.read(1)
+            if seq == "[":
+                code = sys.stdin.read(1)
+                if code == "A":
+                    return "UP"
+                if code == "B":
+                    return "DOWN"
+                if code == "C":
+                    return "RIGHT"
+                if code == "D":
+                    return "LEFT"
+                # consume rest
+                while select.select([sys.stdin], [], [], 0)[0]:
+                    sys.stdin.read(1)
+                return None
+            # consume rest
+            while select.select([sys.stdin], [], [], 0)[0]:
+                sys.stdin.read(1)
+            return None
+        return "ESC"
+    if ch == "\r" or ch == "\n":
+        return "ENTER"
+    return ch
+
+
 # ── main monitor ─────────────────────────────────────────────────────────────
 class KTop:
     def __init__(self, refresh: float = 1.0):
         self.refresh = refresh
         self.console = Console()
+
+        # theme
+        cfg = _load_config()
+        theme_name = cfg.get("theme", "Default")
+        if theme_name not in THEMES:
+            theme_name = "Default"
+        self.theme_name = theme_name
+        self.theme = THEMES[self.theme_name]
+
+        # theme picker state
+        self.picking_theme = False
+        self.theme_cursor = THEME_NAMES.index(self.theme_name)
+        self.theme_scroll = 0
 
         # rolling histories
         self.cpu_hist: deque[float] = deque(maxlen=HISTORY_LEN)
@@ -110,7 +259,6 @@ class KTop:
             except Exception:
                 pass
 
-        # prime one CPU sample so the first frame has data
         psutil.cpu_percent(interval=None)
 
     # ── data collectors ──────────────────────────────────────────────────
@@ -149,7 +297,6 @@ class KTop:
         return gpus
 
     def _top_procs(self, key: str, n: int = 10) -> list[dict]:
-        """Return top-n processes sorted by *key* ('memory_percent' or 'cpu_percent')."""
         procs = []
         for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent", "memory_info"]):
             try:
@@ -164,35 +311,35 @@ class KTop:
 
     # ── panel builders ───────────────────────────────────────────────────
     def _gpu_panels(self) -> Layout:
-        """Return a horizontal Layout with one panel per GPU."""
+        t = self.theme
         gpus = self._gpu_info()
         if not gpus:
             return Panel(
                 Text("No GPUs detected (install pynvml for GPU monitoring)", style="dim italic"),
-                title="[bold magenta] GPU [/bold magenta]",
-                border_style="magenta",
+                title=f"[bold {t['gpu']}] GPU [/bold {t['gpu']}]",
+                border_style=t["gpu"],
             )
 
         gpu_layout = Layout()
         children = []
         for g in gpus:
-            uc = _color_for(g["util"])
-            mc = _color_for(g["mem_pct"])
+            uc = _color_for(g["util"], t)
+            mc = _color_for(g["mem_pct"], t)
             spark_u = _sparkline(self.gpu_util_hist[g["id"]], width=20)
             spark_m = _sparkline(self.gpu_mem_hist[g["id"]], width=20)
             body = (
-                f"[bold]Util[/bold] {_bar(g['util'], 15)} [{uc}]{g['util']:5.1f}%[/{uc}]\n"
+                f"[bold]Util[/bold] {_bar(g['util'], 15, t)} [{uc}]{g['util']:5.1f}%[/{uc}]\n"
                 f"      {spark_u}\n"
-                f"[bold]Mem [/bold] {_bar(g['mem_pct'], 15)} [{mc}]{g['mem_pct']:5.1f}%[/{mc}]\n"
+                f"[bold]Mem [/bold] {_bar(g['mem_pct'], 15, t)} [{mc}]{g['mem_pct']:5.1f}%[/{mc}]\n"
                 f"      {g['mem_used_gb']:.1f}/{g['mem_total_gb']:.1f} GB\n"
                 f"      {spark_m}"
             )
             name_short = g["name"].replace("NVIDIA ", "").replace(" Generation", "")
             panel = Panel(
                 Text.from_markup(body),
-                title=f"[bold magenta] GPU {g['id']} [/bold magenta]",
+                title=f"[bold {t['gpu']}] GPU {g['id']} [/bold {t['gpu']}]",
                 subtitle=f"[dim]{name_short}[/dim]",
-                border_style="magenta",
+                border_style=t["gpu"],
             )
             child = Layout(name=f"gpu{g['id']}", ratio=1)
             child.update(panel)
@@ -202,48 +349,51 @@ class KTop:
         return gpu_layout
 
     def _cpu_panel(self) -> Panel:
+        t = self.theme
         pct = self._sample_cpu()
-        c = _color_for(pct)
+        c = _color_for(pct, t)
         cores = psutil.cpu_count(logical=True)
         freq = psutil.cpu_freq()
         freq_str = f"{freq.current:.0f} MHz" if freq else "N/A"
 
         spark = _sparkline(self.cpu_hist)
         body = (
-            f"[bold]Overall[/bold]  {_bar(pct, 30)} [{c}]{pct:5.1f}%[/{c}]\n"
+            f"[bold]Overall[/bold]  {_bar(pct, 30, t)} [{c}]{pct:5.1f}%[/{c}]\n"
             f"[dim]Cores: {cores}  Freq: {freq_str}[/dim]\n\n"
             f"[bold]History[/bold]\n{spark}"
         )
         return Panel(
             Text.from_markup(body),
-            title="[bold cyan] CPU [/bold cyan]",
-            border_style="cyan",
+            title=f"[bold {t['cpu']}] CPU [/bold {t['cpu']}]",
+            border_style=t["cpu"],
         )
 
     def _mem_panel(self) -> Panel:
+        t = self.theme
         vm = psutil.virtual_memory()
         sw = psutil.swap_memory()
 
         used_pct = vm.percent
-        c = _color_for(used_pct)
+        c = _color_for(used_pct, t)
 
         body = (
-            f"[bold]RAM[/bold]  {_bar(used_pct, 30)} [{c}]{used_pct:5.1f}%[/{c}]\n"
+            f"[bold]RAM[/bold]  {_bar(used_pct, 30, t)} [{c}]{used_pct:5.1f}%[/{c}]\n"
             f"  Used: {_fmt_bytes(vm.used)}  Free: {_fmt_bytes(vm.available)}  Total: {_fmt_bytes(vm.total)}\n\n"
-            f"[bold]Swap[/bold] {_bar(sw.percent, 30)} [dim]{sw.percent:5.1f}%[/dim]\n"
+            f"[bold]Swap[/bold] {_bar(sw.percent, 30, t)} [dim]{sw.percent:5.1f}%[/dim]\n"
             f"  Used: {_fmt_bytes(sw.used)}  Total: {_fmt_bytes(sw.total)}"
         )
         return Panel(
             Text.from_markup(body),
-            title="[bold green] Memory [/bold green]",
-            border_style="green",
+            title=f"[bold {t['mem']}] Memory [/bold {t['mem']}]",
+            border_style=t["mem"],
         )
 
     def _proc_table(self, by: str) -> Panel:
+        t = self.theme
         is_mem = by == "memory_percent"
         procs = self._top_procs(by)
         title = "Top Processes by Memory" if is_mem else "Top Processes by CPU"
-        colour = "green" if is_mem else "cyan"
+        colour = t["proc_mem"] if is_mem else t["proc_cpu"]
 
         table = Table(expand=True, box=None, pad_edge=False)
         table.add_column("PID", style="dim", width=8, justify="right")
@@ -269,14 +419,104 @@ class KTop:
 
         return Panel(table, title=f"[bold {colour}] {title} [/bold {colour}]", border_style=colour)
 
-    # ── layout ───────────────────────────────────────────────────────────
-    def _build(self) -> Layout:
-        layout = Layout()
+    def _status_bar(self) -> Text:
+        t = self.theme
+        bar = Text()
+        bar.append(" q", style=f"bold {t['cpu']}")
+        bar.append("/", style="dim")
+        bar.append("ESC", style=f"bold {t['cpu']}")
+        bar.append(" Quit  ", style="dim")
+        bar.append(" t", style=f"bold {t['gpu']}")
+        bar.append(f" Theme ({self.theme_name})  ", style="dim")
+        return bar
 
+    # ── theme picker ─────────────────────────────────────────────────────
+    def _theme_picker(self) -> Layout:
+        """Full-screen theme picker overlay."""
+        cols = 3
+        visible_rows = 18
+        total = len(THEME_NAMES)
+        cursor = self.theme_cursor
+
+        # Calculate scroll to keep cursor visible
+        cursor_row = cursor // cols
+        if cursor_row < self.theme_scroll:
+            self.theme_scroll = cursor_row
+        elif cursor_row >= self.theme_scroll + visible_rows:
+            self.theme_scroll = cursor_row - visible_rows + 1
+
+        table = Table(expand=True, box=None, pad_edge=True, show_header=False)
+        for _ in range(cols):
+            table.add_column(ratio=1)
+
+        total_rows = (total + cols - 1) // cols
+        for row_idx in range(self.theme_scroll, min(self.theme_scroll + visible_rows, total_rows)):
+            cells = []
+            for col_idx in range(cols):
+                i = row_idx * cols + col_idx
+                if i < total:
+                    name = THEME_NAMES[i]
+                    th = THEMES[name]
+                    if i == cursor:
+                        # Highlighted
+                        cells.append(Text(f" > {name} ", style=f"bold reverse {th['gpu']}"))
+                    elif name == self.theme_name:
+                        # Current active theme
+                        cells.append(Text(f"   {name} *", style=f"bold {th['gpu']}"))
+                    else:
+                        cells.append(Text(f"   {name}", style=f"{th['gpu']}"))
+                else:
+                    cells.append(Text(""))
+            table.add_row(*cells)
+
+        # Preview the hovered theme
+        preview_name = THEME_NAMES[cursor]
+        preview = THEMES[preview_name]
+        sample_bar = _bar(65, 20, preview)
+        preview_text = Text.from_markup(
+            f"\n[bold]Preview:[/bold] {preview_name}\n"
+            f"  GPU [{preview['gpu']}]{'━' * 8}[/{preview['gpu']}]  "
+            f"CPU [{preview['cpu']}]{'━' * 8}[/{preview['cpu']}]  "
+            f"Mem [{preview['mem']}]{'━' * 8}[/{preview['mem']}]\n"
+            f"  Bar: {sample_bar}"
+        )
+
+        inner = Layout()
+        inner.split_column(
+            Layout(name="list", ratio=8),
+            Layout(name="preview", ratio=2),
+        )
+        inner["list"].update(table)
+        inner["preview"].update(Panel(preview_text, border_style="dim"))
+
+        hint = Text.from_markup(
+            " [bold]UP/DOWN/LEFT/RIGHT[/bold] Navigate  "
+            "[bold]ENTER[/bold] Select  "
+            "[bold]ESC[/bold] Cancel"
+        )
+
+        outer = Layout()
+        outer.split_column(
+            Layout(name="body", ratio=9),
+            Layout(name="hint", size=1),
+        )
+        outer["body"].update(
+            Panel(inner, title="[bold] Select Theme [/bold]", border_style="bright_white")
+        )
+        outer["hint"].update(hint)
+        return outer
+
+    # ── main layout ──────────────────────────────────────────────────────
+    def _build(self) -> Layout:
+        if self.picking_theme:
+            return self._theme_picker()
+
+        layout = Layout()
         layout.split_column(
             Layout(name="gpu", ratio=2),
             Layout(name="mid", ratio=2),
             Layout(name="bot", ratio=3),
+            Layout(name="status", size=1),
         )
         layout["mid"].split_row(
             Layout(name="cpu", ratio=1),
@@ -292,23 +532,42 @@ class KTop:
         layout["mem"].update(self._mem_panel())
         layout["mem_procs"].update(self._proc_table("memory_percent"))
         layout["cpu_procs"].update(self._proc_table("cpu_percent"))
+        layout["status"].update(self._status_bar())
 
         return layout
 
-    # ── keyboard helpers ────────────────────────────────────────────────
-    @staticmethod
-    def _key_pressed() -> str | None:
-        """Return a key character if one is waiting on stdin, else None."""
-        if select.select([sys.stdin], [], [], 0)[0]:
-            ch = sys.stdin.read(1)
-            # ESC could be standalone or start of an escape sequence
-            if ch == "\x1b":
-                # Read any remaining escape sequence bytes and discard
-                while select.select([sys.stdin], [], [], 0)[0]:
-                    sys.stdin.read(1)
-                return "ESC"
-            return ch
-        return None
+    # ── input handling ───────────────────────────────────────────────────
+    def _handle_key(self, key: str | None) -> bool:
+        """Handle a keypress. Returns True to quit."""
+        if key is None:
+            return False
+
+        if self.picking_theme:
+            cols = 3
+            total = len(THEME_NAMES)
+            if key == "ESC":
+                self.picking_theme = False
+            elif key == "ENTER":
+                self.theme_name = THEME_NAMES[self.theme_cursor]
+                self.theme = THEMES[self.theme_name]
+                self.picking_theme = False
+                _save_config({"theme": self.theme_name})
+            elif key == "UP":
+                self.theme_cursor = max(0, self.theme_cursor - cols)
+            elif key == "DOWN":
+                self.theme_cursor = min(total - 1, self.theme_cursor + cols)
+            elif key == "LEFT":
+                self.theme_cursor = max(0, self.theme_cursor - 1)
+            elif key == "RIGHT":
+                self.theme_cursor = min(total - 1, self.theme_cursor + 1)
+            return False
+
+        if key in ("q", "Q", "ESC"):
+            return True
+        if key in ("t", "T"):
+            self.picking_theme = True
+            self.theme_cursor = THEME_NAMES.index(self.theme_name)
+        return False
 
     # ── run loop ─────────────────────────────────────────────────────────
     def run(self) -> None:
@@ -326,7 +585,6 @@ class KTop:
         signal.signal(signal.SIGINT, _quit)
         signal.signal(signal.SIGTERM, _quit)
 
-        # Put terminal in raw mode so we can read single key presses
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
         try:
@@ -335,12 +593,12 @@ class KTop:
                 self._build(),
                 console=self.console,
                 screen=True,
-                refresh_per_second=int(1 / self.refresh),
+                refresh_per_second=4,
             ) as live:
                 while True:
                     time.sleep(self.refresh)
-                    key = self._key_pressed()
-                    if key in ("q", "Q", "ESC"):
+                    key = _read_key()
+                    if self._handle_key(key):
                         break
                     live.update(self._build())
         finally:
@@ -352,14 +610,20 @@ class KTop:
 def main():
     parser = argparse.ArgumentParser(description="ktop — system monitor for hybrid LLM workloads")
     parser.add_argument(
-        "-r",
-        "--refresh",
-        type=float,
-        default=1.0,
+        "-r", "--refresh", type=float, default=1.0,
         help="Refresh interval in seconds (default: 1.0)",
     )
+    parser.add_argument(
+        "--theme", type=str, default=None,
+        help=f"Color theme (see theme picker with 't' key)",
+    )
     args = parser.parse_args()
-    KTop(refresh=args.refresh).run()
+
+    k = KTop(refresh=args.refresh)
+    if args.theme and args.theme in THEMES:
+        k.theme_name = args.theme
+        k.theme = THEMES[args.theme]
+    k.run()
 
 
 if __name__ == "__main__":

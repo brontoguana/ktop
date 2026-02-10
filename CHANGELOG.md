@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 — 2026-02-10
+
+- Added theme system with 50 color themes (press `t` to open theme picker)
+- Arrow keys + Enter to select theme, ESC to cancel
+- Theme preference saved to `~/.config/ktop/config.json` and persists across sessions
+- `--theme` CLI flag to set theme from command line
+- Bottom status bar showing keybindings (q/ESC quit, t themes)
+- Proper arrow key handling for theme picker navigation
+- Tested: both main view and theme picker render correctly; config persistence works
+
 ## 0.2.0 — 2026-02-10
 
 - GPU panels now laid out horizontally — all GPUs visible side by side
