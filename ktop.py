@@ -529,8 +529,13 @@ class KTop:
 
     _SIM_PROCS = ["python3", "node", "java", "ollama", "vllm", "ffmpeg", "cc1plus", "rustc", "chrome", "mysqld"]
 
+    _UUID_RE = re.compile(r"-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
     def _check_oom(self) -> str | None:
-        """Return most recent OOM kill in last 8h via journalctl, cached for 5s."""
+        """Return most recent OOM kill in last 8h via journalctl, cached for 5s.
+
+        Checks both kernel OOM kills and systemd-oomd kills.
+        """
         now = time.monotonic()
         if now - self._last_oom_check < 5.0:
             return self._last_oom_str
@@ -543,24 +548,54 @@ class KTop:
                 proc = random.choice(self._SIM_PROCS)
                 self._last_oom_str = f"{fake_time.strftime('%b %d %H:%M:%S')} {proc}"
             return self._last_oom_str
+
+        candidates = []  # list of (epoch_float, display_name)
+
+        # 1) Kernel OOM kills
         try:
-            result = subprocess.run(
+            r = subprocess.run(
                 ["journalctl", "-k", "--since", "8 hours ago",
-                 "--no-pager", "-o", "short", "--grep", "Killed process"],
-                capture_output=True, text=True, timeout=3,
-                stderr=subprocess.DEVNULL,
+                 "--no-pager", "-o", "short-unix", "--grep", "Killed process"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, timeout=3,
             )
-            if result.returncode != 0 or not result.stdout.strip():
-                self._last_oom_str = None
-                return None
-            last_oom = result.stdout.strip().splitlines()[-1]
-            # Format: "Feb 10 14:23:01 host kernel: ... Killed process 1234 (name) ..."
-            ts_match = re.match(r"^(\w+ \d+ \d+:\d+:\d+)", last_oom)
-            proc_match = re.search(r"Killed process \d+ \(([^)]+)\)", last_oom)
-            ts = ts_match.group(1) if ts_match else "?"
-            proc = proc_match.group(1) if proc_match else "?"
-            self._last_oom_str = f"{ts} {proc}"
+            if r.returncode == 0 and r.stdout.strip():
+                line = r.stdout.strip().splitlines()[-1]
+                ts_m = re.match(r"^(\d+\.\d+)\s", line)
+                proc_m = re.search(r"Killed process \d+ \(([^)]+)\)", line)
+                if ts_m and proc_m:
+                    candidates.append((float(ts_m.group(1)), proc_m.group(1)))
         except Exception:
+            pass
+
+        # 2) systemd-oomd kills
+        try:
+            r = subprocess.run(
+                ["journalctl", "-u", "systemd-oomd", "--since", "8 hours ago",
+                 "--no-pager", "-o", "short-unix", "--grep", "Killed"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, timeout=3,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                line = r.stdout.strip().splitlines()[-1]
+                ts_m = re.match(r"^(\d+\.\d+)\s", line)
+                # "Killed /long/cgroup/path/unit.scope due to memory pressure..."
+                scope_m = re.search(r"Killed\s+\S*/([^/\s]+)\s+due to", line)
+                if ts_m:
+                    name = scope_m.group(1) if scope_m else "oomd-kill"
+                    # Clean up scope name: strip .scope suffix and UUIDs
+                    name = name.replace(".scope", "").replace(".service", "")
+                    name = self._UUID_RE.sub("", name)
+                    candidates.append((float(ts_m.group(1)), name))
+        except Exception:
+            pass
+
+        if candidates:
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            epoch, proc = candidates[0]
+            dt = datetime.fromtimestamp(epoch)
+            self._last_oom_str = f"{dt.strftime('%b %d %H:%M:%S')} {proc}"
+        else:
             self._last_oom_str = None
         return self._last_oom_str
 

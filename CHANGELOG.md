@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.1 — 2026-02-11
+
+- OOM tracker now detects `systemd-oomd` kills in addition to kernel OOM kills
+- Fixed `capture_output=True` + `stderr=DEVNULL` conflict that silently broke OOM detection entirely
+- Uses `short-unix` journal output for reliable timestamp comparison between OOM sources
+- Scope names cleaned up: strips `.scope` suffix and UUIDs for readable display (e.g. `tmux-spawn`)
+- Tested: verified both kernel OOM and systemd-oomd kills detected from real journal entries, reinstalled via setup.sh
+
 ## 0.8.0 — 2026-02-10
 
 - CPU process table now shows both Core % (per-core, matches `top`) and CPU % (system-wide)
