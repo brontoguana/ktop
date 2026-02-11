@@ -59,6 +59,7 @@ with warnings.catch_warnings():
 def _detect_amd_gpus() -> list[dict]:
     """Scan sysfs for AMD GPUs (vendor 0x1002). Returns list of cached card info dicts."""
     cards = []
+    seen_devices: set[str] = set()
     for vendor_path in sorted(glob.glob("/sys/class/drm/card*/device/vendor")):
         try:
             with open(vendor_path) as f:
@@ -68,6 +69,12 @@ def _detect_amd_gpus() -> list[dict]:
             continue
 
         dev_dir = os.path.dirname(vendor_path)  # /sys/class/drm/cardN/device
+
+        # Deduplicate: multiple cardN entries can point to the same PCI device
+        real_dev = os.path.realpath(dev_dir)
+        if real_dev in seen_devices:
+            continue
+        seen_devices.add(real_dev)
 
         # GPU name: try product_name first, fall back to PCI device ID
         name = "AMD GPU"
