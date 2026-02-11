@@ -31,11 +31,12 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-try:
-    import warnings
+import warnings
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", FutureWarning)
+# Works with either nvidia-ml-py (preferred) or deprecated pynvml shim
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", FutureWarning)
+    try:
         from pynvml import (
             NVML_TEMPERATURE_GPU,
             NVML_TEMPERATURE_THRESHOLD_SLOWDOWN,
@@ -50,9 +51,9 @@ try:
             nvmlShutdown,
         )
 
-    _PYNVML = True
-except ImportError:
-    _PYNVML = False
+        _PYNVML = True
+    except ImportError:
+        _PYNVML = False
 
 
 def _detect_amd_gpus() -> list[dict]:

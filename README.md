@@ -63,7 +63,7 @@ ktop --version
 - Python 3.8+
 - NVIDIA GPU + drivers (optional — `pynvml` for NVIDIA monitoring)
 - AMD GPU + `amdgpu` driver (optional — uses sysfs, no extra dependencies)
-- Dependencies: `psutil`, `rich`, `pynvml` (optional, for NVIDIA)
+- Dependencies: `psutil`, `rich`, `nvidia-ml-py` or `pynvml` (optional, for NVIDIA)
 
 ## License
 
