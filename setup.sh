@@ -8,12 +8,18 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$REPO_DIR/.venv"
 
-# Checkout latest tagged release (skip if not a git repo or no tags)
+# Checkout latest tagged release (skip if not a git repo, no tags, or on a feature branch)
 if git -C "$REPO_DIR" rev-parse --git-dir &>/dev/null; then
-    LATEST_TAG=$(git -C "$REPO_DIR" describe --tags --abbrev=0 2>/dev/null || true)
-    if [ -n "$LATEST_TAG" ]; then
-        echo "==> Checking out release $LATEST_TAG"
-        git -C "$REPO_DIR" checkout --quiet "$LATEST_TAG"
+    CURRENT_BRANCH=$(git -C "$REPO_DIR" symbolic-ref --short HEAD 2>/dev/null || true)
+    DEFAULT_BRANCH=$(git -C "$REPO_DIR" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|origin/||' || echo "master")
+    if [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ] && [ -n "$CURRENT_BRANCH" ]; then
+        echo "==> On branch $CURRENT_BRANCH — skipping tag checkout"
+    else
+        LATEST_TAG=$(git -C "$REPO_DIR" describe --tags --abbrev=0 2>/dev/null || true)
+        if [ -n "$LATEST_TAG" ]; then
+            echo "==> Checking out release $LATEST_TAG"
+            git -C "$REPO_DIR" checkout --quiet "$LATEST_TAG"
+        fi
     fi
 fi
 
