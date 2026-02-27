@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """ktop - Terminal system resource monitor for hybrid LLM workloads."""
+
 from __future__ import annotations
 
 __version__ = "0.9.0"
@@ -47,6 +48,7 @@ with warnings.catch_warnings():
             nvmlDeviceGetTemperature,
             nvmlDeviceGetTemperatureThreshold,
             nvmlDeviceGetUtilizationRates,
+            nvmlDeviceGetPowerUsage,
             nvmlInit,
             nvmlShutdown,
         )
@@ -130,24 +132,26 @@ def _detect_amd_gpus() -> list[dict]:
             except OSError:
                 pass
 
-        cards.append({
-            "dev_dir": dev_dir,
-            "name": name,
-            "util_path": util_path,
-            "has_util": has_util,
-            "vram_total_path": vram_total_path,
-            "vram_used_path": vram_used_path,
-            "has_vram": has_vram,
-            "vram_total_bytes": vram_total_bytes,
-            "temp_path": temp_path,
-            "temp_crit_path": temp_crit_path,
-        })
+        cards.append(
+            {
+                "dev_dir": dev_dir,
+                "name": name,
+                "util_path": util_path,
+                "has_util": has_util,
+                "vram_total_path": vram_total_path,
+                "vram_used_path": vram_used_path,
+                "has_vram": has_vram,
+                "vram_total_bytes": vram_total_bytes,
+                "temp_path": temp_path,
+                "temp_crit_path": temp_crit_path,
+            }
+        )
     return cards
 
 
 # ── constants ────────────────────────────────────────────────────────────────
 SPARK = " ▁▂▃▄▅▆▇█"
-SPARK_DOWN = " ▔\U0001FB82\U0001FB83▀\U0001FB84\U0001FB85\U0001FB86█"
+SPARK_DOWN = " ▔\U0001fb82\U0001fb83▀\U0001fb84\U0001fb85\U0001fb86█"
 HISTORY_LEN = 300
 CONFIG_DIR = Path.home() / ".config" / "ktop"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -158,70 +162,572 @@ THEMES: dict[str, dict] = {}
 
 
 def _t(name, gpu, cpu, mem, pm, pc, lo, mid, hi, net=None, net_up=None, net_down=None):
-    THEMES[name] = dict(gpu=gpu, cpu=cpu, mem=mem, proc_mem=pm, proc_cpu=pc, bar_low=lo, bar_mid=mid, bar_high=hi, net=net or cpu, net_up=net_up or gpu, net_down=net_down or (net or cpu))
+    THEMES[name] = dict(
+        gpu=gpu,
+        cpu=cpu,
+        mem=mem,
+        proc_mem=pm,
+        proc_cpu=pc,
+        bar_low=lo,
+        bar_mid=mid,
+        bar_high=hi,
+        net=net or cpu,
+        net_up=net_up or gpu,
+        net_down=net_down or (net or cpu),
+    )
 
 
 # ── Classic & editor themes ──
-_t("Default",            "magenta",      "cyan",         "green",        "green",        "cyan",         "green",    "yellow",   "red")
-_t("Monokai",           "bright_magenta","bright_cyan",  "bright_green", "bright_green", "bright_cyan",  "green",    "yellow",   "red")
-_t("Dracula",           "#bd93f9",       "#8be9fd",      "#50fa7b",      "#50fa7b",      "#8be9fd",      "#50fa7b",  "#f1fa8c",  "#ff5555")
-_t("Nord",              "#b48ead",       "#88c0d0",      "#a3be8c",      "#a3be8c",      "#88c0d0",      "#a3be8c",  "#ebcb8b",  "#bf616a")
-_t("Solarized",         "#d33682",       "#2aa198",      "#859900",      "#859900",      "#2aa198",      "#859900",  "#b58900",  "#dc322f")
-_t("Gruvbox",           "#d3869b",       "#83a598",      "#b8bb26",      "#b8bb26",      "#83a598",      "#b8bb26",  "#fabd2f",  "#fb4934")
-_t("One Dark",          "#c678dd",       "#56b6c2",      "#98c379",      "#98c379",      "#56b6c2",      "#98c379",  "#e5c07b",  "#e06c75")
-_t("Tokyo Night",       "#bb9af7",       "#7dcfff",      "#9ece6a",      "#9ece6a",      "#7dcfff",      "#9ece6a",  "#e0af68",  "#f7768e")
-_t("Catppuccin Mocha",  "#cba6f7",       "#89dceb",      "#a6e3a1",      "#a6e3a1",      "#89dceb",      "#a6e3a1",  "#f9e2af",  "#f38ba8")
-_t("Catppuccin Latte",  "#8839ef",       "#04a5e5",      "#40a02b",      "#40a02b",      "#04a5e5",      "#40a02b",  "#df8e1d",  "#d20f39")
-_t("Rosé Pine",         "#c4a7e7",       "#9ccfd8",      "#31748f",      "#31748f",      "#9ccfd8",      "#31748f",  "#f6c177",  "#eb6f92")
-_t("Everforest",        "#d699b6",       "#7fbbb3",      "#a7c080",      "#a7c080",      "#7fbbb3",      "#a7c080",  "#dbbc7f",  "#e67e80")
-_t("Kanagawa",          "#957fb8",       "#7e9cd8",      "#98bb6c",      "#98bb6c",      "#7e9cd8",      "#98bb6c",  "#e6c384",  "#c34043")
+_t("Default", "magenta", "cyan", "green", "green", "cyan", "green", "yellow", "red")
+_t(
+    "Monokai",
+    "bright_magenta",
+    "bright_cyan",
+    "bright_green",
+    "bright_green",
+    "bright_cyan",
+    "green",
+    "yellow",
+    "red",
+)
+_t(
+    "Dracula",
+    "#bd93f9",
+    "#8be9fd",
+    "#50fa7b",
+    "#50fa7b",
+    "#8be9fd",
+    "#50fa7b",
+    "#f1fa8c",
+    "#ff5555",
+)
+_t(
+    "Nord",
+    "#b48ead",
+    "#88c0d0",
+    "#a3be8c",
+    "#a3be8c",
+    "#88c0d0",
+    "#a3be8c",
+    "#ebcb8b",
+    "#bf616a",
+)
+_t(
+    "Solarized",
+    "#d33682",
+    "#2aa198",
+    "#859900",
+    "#859900",
+    "#2aa198",
+    "#859900",
+    "#b58900",
+    "#dc322f",
+)
+_t(
+    "Gruvbox",
+    "#d3869b",
+    "#83a598",
+    "#b8bb26",
+    "#b8bb26",
+    "#83a598",
+    "#b8bb26",
+    "#fabd2f",
+    "#fb4934",
+)
+_t(
+    "One Dark",
+    "#c678dd",
+    "#56b6c2",
+    "#98c379",
+    "#98c379",
+    "#56b6c2",
+    "#98c379",
+    "#e5c07b",
+    "#e06c75",
+)
+_t(
+    "Tokyo Night",
+    "#bb9af7",
+    "#7dcfff",
+    "#9ece6a",
+    "#9ece6a",
+    "#7dcfff",
+    "#9ece6a",
+    "#e0af68",
+    "#f7768e",
+)
+_t(
+    "Catppuccin Mocha",
+    "#cba6f7",
+    "#89dceb",
+    "#a6e3a1",
+    "#a6e3a1",
+    "#89dceb",
+    "#a6e3a1",
+    "#f9e2af",
+    "#f38ba8",
+)
+_t(
+    "Catppuccin Latte",
+    "#8839ef",
+    "#04a5e5",
+    "#40a02b",
+    "#40a02b",
+    "#04a5e5",
+    "#40a02b",
+    "#df8e1d",
+    "#d20f39",
+)
+_t(
+    "Rosé Pine",
+    "#c4a7e7",
+    "#9ccfd8",
+    "#31748f",
+    "#31748f",
+    "#9ccfd8",
+    "#31748f",
+    "#f6c177",
+    "#eb6f92",
+)
+_t(
+    "Everforest",
+    "#d699b6",
+    "#7fbbb3",
+    "#a7c080",
+    "#a7c080",
+    "#7fbbb3",
+    "#a7c080",
+    "#dbbc7f",
+    "#e67e80",
+)
+_t(
+    "Kanagawa",
+    "#957fb8",
+    "#7e9cd8",
+    "#98bb6c",
+    "#98bb6c",
+    "#7e9cd8",
+    "#98bb6c",
+    "#e6c384",
+    "#c34043",
+)
 
 # ── Monochrome / minimal ──
-_t("Monochrome",        "white",         "white",        "white",        "white",        "white",        "bright_white","white",  "#888888")
-_t("Green Screen",      "green",         "green",        "green",        "green",        "green",        "bright_green","green",  "dark_green")
-_t("Amber",             "#ffbf00",       "#ffbf00",      "#ffbf00",      "#ffbf00",      "#ffbf00",      "#ffd700",  "#ffbf00",  "#ff8c00")
-_t("Phosphor",          "#33ff00",       "#33ff00",      "#33ff00",      "#33ff00",      "#33ff00",      "#66ff33",  "#33ff00",  "#009900")
+_t(
+    "Monochrome",
+    "white",
+    "white",
+    "white",
+    "white",
+    "white",
+    "bright_white",
+    "white",
+    "#888888",
+)
+_t(
+    "Green Screen",
+    "green",
+    "green",
+    "green",
+    "green",
+    "green",
+    "bright_green",
+    "green",
+    "dark_green",
+)
+_t(
+    "Amber",
+    "#ffbf00",
+    "#ffbf00",
+    "#ffbf00",
+    "#ffbf00",
+    "#ffbf00",
+    "#ffd700",
+    "#ffbf00",
+    "#ff8c00",
+)
+_t(
+    "Phosphor",
+    "#33ff00",
+    "#33ff00",
+    "#33ff00",
+    "#33ff00",
+    "#33ff00",
+    "#66ff33",
+    "#33ff00",
+    "#009900",
+)
 
 # ── Color themes ──
-_t("Ocean",             "#6c5ce7",       "#0984e3",      "#00b894",      "#00b894",      "#0984e3",      "#00b894",  "#fdcb6e",  "#d63031")
-_t("Sunset",            "#e17055",       "#fdcb6e",      "#fab1a0",      "#fab1a0",      "#fdcb6e",      "#ffeaa7",  "#e17055",  "#d63031")
-_t("Forest",            "#00b894",       "#55efc4",      "#00cec9",      "#00cec9",      "#55efc4",      "#55efc4",  "#ffeaa7",  "#e17055")
-_t("Lava",              "#ff6348",       "#ff4757",      "#ff6b81",      "#ff6b81",      "#ff4757",      "#ffa502",  "#ff6348",  "#ff3838")
-_t("Arctic",            "#dfe6e9",       "#74b9ff",      "#81ecec",      "#81ecec",      "#74b9ff",      "#81ecec",  "#74b9ff",  "#a29bfe")
-_t("Sakura",            "#fd79a8",       "#e84393",      "#fab1a0",      "#fab1a0",      "#e84393",      "#fab1a0",  "#fd79a8",  "#e84393")
-_t("Mint",              "#00b894",       "#00cec9",      "#55efc4",      "#55efc4",      "#00cec9",      "#55efc4",  "#81ecec",  "#ff7675")
-_t("Lavender",          "#a29bfe",       "#6c5ce7",      "#dfe6e9",      "#dfe6e9",      "#6c5ce7",      "#a29bfe",  "#6c5ce7",  "#fd79a8")
-_t("Coral",             "#ff7675",       "#fab1a0",      "#ffeaa7",      "#ffeaa7",      "#fab1a0",      "#ffeaa7",  "#ff7675",  "#d63031")
-_t("Cyberpunk",         "#ff00ff",       "#00ffff",      "#ff00aa",      "#ff00aa",      "#00ffff",      "#00ff00",  "#ffff00",  "#ff0000")
-_t("Neon",              "#ff6ec7",       "#00ffff",      "#39ff14",      "#39ff14",      "#00ffff",      "#39ff14",  "#ffff00",  "#ff073a")
-_t("Synthwave",         "#f72585",       "#4cc9f0",      "#7209b7",      "#7209b7",      "#4cc9f0",      "#4cc9f0",  "#f72585",  "#ff0a54")
-_t("Vaporwave",         "#ff71ce",       "#01cdfe",      "#05ffa1",      "#05ffa1",      "#01cdfe",      "#05ffa1",  "#b967ff",  "#ff71ce")
-_t("Matrix",            "#00ff41",       "#008f11",      "#003b00",      "#003b00",      "#008f11",      "#00ff41",  "#008f11",  "#003b00")
+_t(
+    "Ocean",
+    "#6c5ce7",
+    "#0984e3",
+    "#00b894",
+    "#00b894",
+    "#0984e3",
+    "#00b894",
+    "#fdcb6e",
+    "#d63031",
+)
+_t(
+    "Sunset",
+    "#e17055",
+    "#fdcb6e",
+    "#fab1a0",
+    "#fab1a0",
+    "#fdcb6e",
+    "#ffeaa7",
+    "#e17055",
+    "#d63031",
+)
+_t(
+    "Forest",
+    "#00b894",
+    "#55efc4",
+    "#00cec9",
+    "#00cec9",
+    "#55efc4",
+    "#55efc4",
+    "#ffeaa7",
+    "#e17055",
+)
+_t(
+    "Lava",
+    "#ff6348",
+    "#ff4757",
+    "#ff6b81",
+    "#ff6b81",
+    "#ff4757",
+    "#ffa502",
+    "#ff6348",
+    "#ff3838",
+)
+_t(
+    "Arctic",
+    "#dfe6e9",
+    "#74b9ff",
+    "#81ecec",
+    "#81ecec",
+    "#74b9ff",
+    "#81ecec",
+    "#74b9ff",
+    "#a29bfe",
+)
+_t(
+    "Sakura",
+    "#fd79a8",
+    "#e84393",
+    "#fab1a0",
+    "#fab1a0",
+    "#e84393",
+    "#fab1a0",
+    "#fd79a8",
+    "#e84393",
+)
+_t(
+    "Mint",
+    "#00b894",
+    "#00cec9",
+    "#55efc4",
+    "#55efc4",
+    "#00cec9",
+    "#55efc4",
+    "#81ecec",
+    "#ff7675",
+)
+_t(
+    "Lavender",
+    "#a29bfe",
+    "#6c5ce7",
+    "#dfe6e9",
+    "#dfe6e9",
+    "#6c5ce7",
+    "#a29bfe",
+    "#6c5ce7",
+    "#fd79a8",
+)
+_t(
+    "Coral",
+    "#ff7675",
+    "#fab1a0",
+    "#ffeaa7",
+    "#ffeaa7",
+    "#fab1a0",
+    "#ffeaa7",
+    "#ff7675",
+    "#d63031",
+)
+_t(
+    "Cyberpunk",
+    "#ff00ff",
+    "#00ffff",
+    "#ff00aa",
+    "#ff00aa",
+    "#00ffff",
+    "#00ff00",
+    "#ffff00",
+    "#ff0000",
+)
+_t(
+    "Neon",
+    "#ff6ec7",
+    "#00ffff",
+    "#39ff14",
+    "#39ff14",
+    "#00ffff",
+    "#39ff14",
+    "#ffff00",
+    "#ff073a",
+)
+_t(
+    "Synthwave",
+    "#f72585",
+    "#4cc9f0",
+    "#7209b7",
+    "#7209b7",
+    "#4cc9f0",
+    "#4cc9f0",
+    "#f72585",
+    "#ff0a54",
+)
+_t(
+    "Vaporwave",
+    "#ff71ce",
+    "#01cdfe",
+    "#05ffa1",
+    "#05ffa1",
+    "#01cdfe",
+    "#05ffa1",
+    "#b967ff",
+    "#ff71ce",
+)
+_t(
+    "Matrix",
+    "#00ff41",
+    "#008f11",
+    "#003b00",
+    "#003b00",
+    "#008f11",
+    "#00ff41",
+    "#008f11",
+    "#003b00",
+)
 
 # ── Pastel & soft ──
-_t("Pastel",            "#c39bd3",       "#85c1e9",      "#82e0aa",      "#82e0aa",      "#85c1e9",      "#82e0aa",  "#f9e79f",  "#f1948a")
-_t("Soft",              "#bb8fce",       "#76d7c4",      "#7dcea0",      "#7dcea0",      "#76d7c4",      "#7dcea0",  "#f0b27a",  "#ec7063")
-_t("Cotton Candy",      "#ffb3ba",       "#bae1ff",      "#baffc9",      "#baffc9",      "#bae1ff",      "#baffc9",  "#ffffba",  "#ffb3ba")
-_t("Ice Cream",         "#ff9a9e",       "#a1c4fd",      "#c2e9fb",      "#c2e9fb",      "#a1c4fd",      "#c2e9fb",  "#ffecd2",  "#ff9a9e")
+_t(
+    "Pastel",
+    "#c39bd3",
+    "#85c1e9",
+    "#82e0aa",
+    "#82e0aa",
+    "#85c1e9",
+    "#82e0aa",
+    "#f9e79f",
+    "#f1948a",
+)
+_t(
+    "Soft",
+    "#bb8fce",
+    "#76d7c4",
+    "#7dcea0",
+    "#7dcea0",
+    "#76d7c4",
+    "#7dcea0",
+    "#f0b27a",
+    "#ec7063",
+)
+_t(
+    "Cotton Candy",
+    "#ffb3ba",
+    "#bae1ff",
+    "#baffc9",
+    "#baffc9",
+    "#bae1ff",
+    "#baffc9",
+    "#ffffba",
+    "#ffb3ba",
+)
+_t(
+    "Ice Cream",
+    "#ff9a9e",
+    "#a1c4fd",
+    "#c2e9fb",
+    "#c2e9fb",
+    "#a1c4fd",
+    "#c2e9fb",
+    "#ffecd2",
+    "#ff9a9e",
+)
 
 # ── Bold & vivid ──
-_t("Electric",          "#7b2ff7",       "#00d4ff",      "#00ff87",      "#00ff87",      "#00d4ff",      "#00ff87",  "#ffd000",  "#ff0055")
-_t("Inferno",           "#ff4500",       "#ff6a00",      "#ff8c00",      "#ff8c00",      "#ff6a00",      "#ffd700",  "#ff8c00",  "#ff0000")
-_t("Glacier",           "#e0f7fa",       "#80deea",      "#4dd0e1",      "#4dd0e1",      "#80deea",      "#80deea",  "#4dd0e1",  "#00838f")
-_t("Twilight",          "#7c4dff",       "#448aff",      "#18ffff",      "#18ffff",      "#448aff",      "#18ffff",  "#7c4dff",  "#ff1744")
-_t("Autumn",            "#d35400",       "#e67e22",      "#f39c12",      "#f39c12",      "#e67e22",      "#f1c40f",  "#e67e22",  "#c0392b")
-_t("Spring",            "#e91e63",       "#00bcd4",      "#8bc34a",      "#8bc34a",      "#00bcd4",      "#8bc34a",  "#ffeb3b",  "#f44336")
-_t("Summer",            "#ff9800",       "#03a9f4",      "#4caf50",      "#4caf50",      "#03a9f4",      "#4caf50",  "#ffeb3b",  "#f44336")
-_t("Winter",            "#9c27b0",       "#3f51b5",      "#607d8b",      "#607d8b",      "#3f51b5",      "#607d8b",  "#9c27b0",  "#e91e63")
+_t(
+    "Electric",
+    "#7b2ff7",
+    "#00d4ff",
+    "#00ff87",
+    "#00ff87",
+    "#00d4ff",
+    "#00ff87",
+    "#ffd000",
+    "#ff0055",
+)
+_t(
+    "Inferno",
+    "#ff4500",
+    "#ff6a00",
+    "#ff8c00",
+    "#ff8c00",
+    "#ff6a00",
+    "#ffd700",
+    "#ff8c00",
+    "#ff0000",
+)
+_t(
+    "Glacier",
+    "#e0f7fa",
+    "#80deea",
+    "#4dd0e1",
+    "#4dd0e1",
+    "#80deea",
+    "#80deea",
+    "#4dd0e1",
+    "#00838f",
+)
+_t(
+    "Twilight",
+    "#7c4dff",
+    "#448aff",
+    "#18ffff",
+    "#18ffff",
+    "#448aff",
+    "#18ffff",
+    "#7c4dff",
+    "#ff1744",
+)
+_t(
+    "Autumn",
+    "#d35400",
+    "#e67e22",
+    "#f39c12",
+    "#f39c12",
+    "#e67e22",
+    "#f1c40f",
+    "#e67e22",
+    "#c0392b",
+)
+_t(
+    "Spring",
+    "#e91e63",
+    "#00bcd4",
+    "#8bc34a",
+    "#8bc34a",
+    "#00bcd4",
+    "#8bc34a",
+    "#ffeb3b",
+    "#f44336",
+)
+_t(
+    "Summer",
+    "#ff9800",
+    "#03a9f4",
+    "#4caf50",
+    "#4caf50",
+    "#03a9f4",
+    "#4caf50",
+    "#ffeb3b",
+    "#f44336",
+)
+_t(
+    "Winter",
+    "#9c27b0",
+    "#3f51b5",
+    "#607d8b",
+    "#607d8b",
+    "#3f51b5",
+    "#607d8b",
+    "#9c27b0",
+    "#e91e63",
+)
 
 # ── High contrast / accessibility ──
-_t("High Contrast",     "bright_magenta","bright_cyan",  "bright_green", "bright_green", "bright_cyan",  "bright_green","bright_yellow","bright_red")
-_t("Blueprint",         "#4fc3f7",       "#29b6f6",      "#03a9f4",      "#03a9f4",      "#29b6f6",      "#4fc3f7",  "#0288d1",  "#01579b")
-_t("Redshift",          "#ef5350",       "#e53935",      "#c62828",      "#c62828",      "#e53935",      "#ef9a9a",  "#ef5350",  "#b71c1c")
-_t("Emerald",           "#66bb6a",       "#43a047",      "#2e7d32",      "#2e7d32",      "#43a047",      "#a5d6a7",  "#66bb6a",  "#1b5e20")
-_t("Royal",             "#7e57c2",       "#5c6bc0",      "#42a5f5",      "#42a5f5",      "#5c6bc0",      "#42a5f5",  "#7e57c2",  "#d32f2f")
-_t("Bubblegum",         "#ff77a9",       "#ff99cc",      "#ffb3d9",      "#ffb3d9",      "#ff99cc",      "#ffb3d9",  "#ff77a9",  "#ff3385")
-_t("Horizon",           "#e95678",       "#fab795",      "#25b0bc",      "#25b0bc",      "#fab795",      "#25b0bc",  "#fab795",  "#e95678")
+_t(
+    "High Contrast",
+    "bright_magenta",
+    "bright_cyan",
+    "bright_green",
+    "bright_green",
+    "bright_cyan",
+    "bright_green",
+    "bright_yellow",
+    "bright_red",
+)
+_t(
+    "Blueprint",
+    "#4fc3f7",
+    "#29b6f6",
+    "#03a9f4",
+    "#03a9f4",
+    "#29b6f6",
+    "#4fc3f7",
+    "#0288d1",
+    "#01579b",
+)
+_t(
+    "Redshift",
+    "#ef5350",
+    "#e53935",
+    "#c62828",
+    "#c62828",
+    "#e53935",
+    "#ef9a9a",
+    "#ef5350",
+    "#b71c1c",
+)
+_t(
+    "Emerald",
+    "#66bb6a",
+    "#43a047",
+    "#2e7d32",
+    "#2e7d32",
+    "#43a047",
+    "#a5d6a7",
+    "#66bb6a",
+    "#1b5e20",
+)
+_t(
+    "Royal",
+    "#7e57c2",
+    "#5c6bc0",
+    "#42a5f5",
+    "#42a5f5",
+    "#5c6bc0",
+    "#42a5f5",
+    "#7e57c2",
+    "#d32f2f",
+)
+_t(
+    "Bubblegum",
+    "#ff77a9",
+    "#ff99cc",
+    "#ffb3d9",
+    "#ffb3d9",
+    "#ff99cc",
+    "#ffb3d9",
+    "#ff77a9",
+    "#ff3385",
+)
+_t(
+    "Horizon",
+    "#e95678",
+    "#fab795",
+    "#25b0bc",
+    "#25b0bc",
+    "#fab795",
+    "#25b0bc",
+    "#fab795",
+    "#e95678",
+)
 
 THEME_NAMES = list(THEMES.keys())
 
@@ -435,6 +941,7 @@ class KTop:
         self.nvidia_gpu_count = 0
         self.gpu_util_hist: dict[int, deque] = {}
         self.gpu_mem_hist: dict[int, deque] = {}
+        self.gpu_power_hist: dict[int, deque] = {}
 
         if _PYNVML:
             try:
@@ -444,6 +951,7 @@ class KTop:
                 for i in range(self.nvidia_gpu_count):
                     self.gpu_util_hist[i] = deque(maxlen=HISTORY_LEN)
                     self.gpu_mem_hist[i] = deque(maxlen=HISTORY_LEN)
+                    self.gpu_power_hist[i] = deque(maxlen=HISTORY_LEN)
             except Exception:
                 pass
 
@@ -453,6 +961,7 @@ class KTop:
             idx = self.nvidia_gpu_count + j
             self.gpu_util_hist[idx] = deque(maxlen=HISTORY_LEN)
             self.gpu_mem_hist[idx] = deque(maxlen=HISTORY_LEN)
+            self.gpu_power_hist[idx] = deque(maxlen=HISTORY_LEN)
 
         self.gpu_count = self.nvidia_gpu_count + len(self._amd_cards)
         self.gpu_ok = self.gpu_count > 0
@@ -477,7 +986,9 @@ class KTop:
         self._prof_frame = 0
         if self.sim:
             self._prof_log = Path("/tmp/ktop_profile.log")
-            self._prof_log.write_text(f"ktop profile started {datetime.now().isoformat()}\n")
+            self._prof_log.write_text(
+                f"ktop profile started {datetime.now().isoformat()}\n"
+            )
 
         # CPU info (static, cache once)
         self._cpu_cores = psutil.cpu_count(logical=True)
@@ -495,9 +1006,15 @@ class KTop:
                 stat = os.read(fd, 512)
                 os.close(fd)
                 i1 = stat.rindex(b")")
-                fields = stat[i1 + 2:].split(None, 13)
+                fields = stat[i1 + 2 :].split(None, 13)
                 self._proc_cpu_prev[int(pid_str)] = int(fields[11]) + int(fields[12])
-            except (FileNotFoundError, PermissionError, IndexError, ValueError, OSError):
+            except (
+                FileNotFoundError,
+                PermissionError,
+                IndexError,
+                ValueError,
+                OSError,
+            ):
                 continue
         self._last_proc_scan = time.monotonic()
 
@@ -527,7 +1044,13 @@ class KTop:
 
     def _sample_temps(self) -> dict:
         """Collect temperature readings with hardware limits."""
-        temps = {"cpu": None, "cpu_max": 100.0, "mem": None, "mem_max": 85.0, "gpus": []}
+        temps = {
+            "cpu": None,
+            "cpu_max": 100.0,
+            "mem": None,
+            "mem_max": 85.0,
+            "gpus": [],
+        }
         # CPU and memory temps from psutil (includes high/critical thresholds)
         try:
             sensor_temps = psutil.sensors_temperatures()
@@ -557,7 +1080,9 @@ class KTop:
                     h = nvmlDeviceGetHandleByIndex(i)
                     t = nvmlDeviceGetTemperature(h, NVML_TEMPERATURE_GPU)
                     try:
-                        t_max = nvmlDeviceGetTemperatureThreshold(h, NVML_TEMPERATURE_THRESHOLD_SLOWDOWN)
+                        t_max = nvmlDeviceGetTemperatureThreshold(
+                            h, NVML_TEMPERATURE_THRESHOLD_SLOWDOWN
+                        )
                     except Exception:
                         t_max = 95
                     temps["gpus"].append({"temp": t, "max": t_max})
@@ -595,9 +1120,11 @@ class KTop:
                         name = name.decode()
                     util = nvmlDeviceGetUtilizationRates(h)
                     mem = nvmlDeviceGetMemoryInfo(h)
+                    power = nvmlDeviceGetPowerUsage(h)
                     mem_pct = mem.used / mem.total * 100 if mem.total else 0
                     self.gpu_util_hist[i].append(util.gpu)
                     self.gpu_mem_hist[i].append(mem_pct)
+                    self.gpu_power_hist[i].append(power / 1000.0)
                     gpus.append(
                         {
                             "id": i,
@@ -606,6 +1133,7 @@ class KTop:
                             "mem_used_gb": mem.used / 1024**3,
                             "mem_total_gb": mem.total / 1024**3,
                             "mem_pct": mem_pct,
+                            "power_watts": power / 1000.0,
                         }
                     )
                 except Exception:
@@ -640,16 +1168,28 @@ class KTop:
                         pass
 
                 mem_pct = mem_used / mem_total * 100 if mem_total else 0
+                power_watts = 0.0
+                power_path = os.path.join(card["dev_dir"], "hwmon", "power1_input")
+                if os.path.isfile(power_path):
+                    try:
+                        with open(power_path) as f:
+                            power_watts = int(f.read().strip()) / 1000.0
+                    except (OSError, ValueError):
+                        pass
                 self.gpu_util_hist[idx].append(util)
                 self.gpu_mem_hist[idx].append(mem_pct)
-                gpus.append({
-                    "id": idx,
-                    "name": card["name"],
-                    "util": util,
-                    "mem_used_gb": mem_used / 1024**3,
-                    "mem_total_gb": mem_total / 1024**3,
-                    "mem_pct": mem_pct,
-                })
+                self.gpu_power_hist[idx].append(power_watts)
+                gpus.append(
+                    {
+                        "id": idx,
+                        "name": card["name"],
+                        "util": util,
+                        "mem_used_gb": mem_used / 1024**3,
+                        "mem_total_gb": mem_total / 1024**3,
+                        "mem_pct": mem_pct,
+                        "power_watts": power_watts,
+                    }
+                )
             except Exception:
                 pass
         return gpus
@@ -681,31 +1221,48 @@ class KTop:
                 stat = os.read(fd, 512)
                 os.close(fd)
                 i1 = stat.rindex(b")")
-                fields = stat[i1 + 2:].split(None, 22)
-                utime = int(fields[11])   # field 14
-                stime = int(fields[12])   # field 15
+                fields = stat[i1 + 2 :].split(None, 22)
+                utime = int(fields[11])  # field 14
+                stime = int(fields[12])  # field 15
                 rss = int(fields[21]) * ps  # field 24
-                name = stat[stat.index(b"(") + 1:i1].decode("utf-8", errors="replace")
+                name = stat[stat.index(b"(") + 1 : i1].decode("utf-8", errors="replace")
                 mem_pct = rss / total_mem * 100 if total_mem else 0
                 cpu_total = utime + stime
                 prev = cpu_prev.get(pid, cpu_total)
                 cpu_delta = cpu_total - prev
                 cpu_prev[pid] = cpu_total
                 cpu_pct = (cpu_delta / ct) / dt * 100 if dt > 0 else 0
-                procs.append({
-                    "pid": pid, "name": name[:28],
-                    "cpu_percent": cpu_pct, "memory_percent": mem_pct,
-                    "rss": rss,
-                })
-            except (FileNotFoundError, PermissionError, IndexError, ValueError, ProcessLookupError, OSError):
+                procs.append(
+                    {
+                        "pid": pid,
+                        "name": name[:28],
+                        "cpu_percent": cpu_pct,
+                        "memory_percent": mem_pct,
+                        "rss": rss,
+                    }
+                )
+            except (
+                FileNotFoundError,
+                PermissionError,
+                IndexError,
+                ValueError,
+                ProcessLookupError,
+                OSError,
+            ):
                 continue
         # Clean stale PIDs
         current = {p["pid"] for p in procs}
         self._proc_cpu_prev = {k: v for k, v in cpu_prev.items() if k in current}
-        self._procs_by_mem = sorted(procs, key=lambda x: x.get("memory_percent", 0) or 0, reverse=True)[:10]
-        self._procs_by_cpu = sorted(procs, key=lambda x: x.get("cpu_percent", 0) or 0, reverse=True)[:10]
+        self._procs_by_mem = sorted(
+            procs, key=lambda x: x.get("memory_percent", 0) or 0, reverse=True
+        )[:10]
+        self._procs_by_cpu = sorted(
+            procs, key=lambda x: x.get("cpu_percent", 0) or 0, reverse=True
+        )[:10]
         # Deferred: only read statm for the top procs we actually display
-        displayed = {p["pid"] for p in self._procs_by_mem} | {p["pid"] for p in self._procs_by_cpu}
+        displayed = {p["pid"] for p in self._procs_by_mem} | {
+            p["pid"] for p in self._procs_by_cpu
+        }
         for p in procs:
             if p["pid"] not in displayed:
                 continue
@@ -713,7 +1270,13 @@ class KTop:
                 fd = os.open(f"/proc/{p['pid']}/statm", os.O_RDONLY)
                 shared = int(os.read(fd, 128).split()[2]) * ps
                 os.close(fd)
-            except (FileNotFoundError, PermissionError, IndexError, ValueError, OSError):
+            except (
+                FileNotFoundError,
+                PermissionError,
+                IndexError,
+                ValueError,
+                OSError,
+            ):
                 shared = 0
             p["memory_info"] = SimpleNamespace(rss=p["rss"], shared=shared)
 
@@ -722,9 +1285,22 @@ class KTop:
             return self._procs_by_mem
         return self._procs_by_cpu
 
-    _SIM_PROCS = ["python3", "node", "java", "ollama", "vllm", "ffmpeg", "cc1plus", "rustc", "chrome", "mysqld"]
+    _SIM_PROCS = [
+        "python3",
+        "node",
+        "java",
+        "ollama",
+        "vllm",
+        "ffmpeg",
+        "cc1plus",
+        "rustc",
+        "chrome",
+        "mysqld",
+    ]
 
-    _UUID_RE = re.compile(r"-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+    _UUID_RE = re.compile(
+        r"-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    )
 
     def _check_oom(self) -> str | None:
         """Return most recent OOM kill in last 8h via journalctl, cached for 5s.
@@ -739,7 +1315,9 @@ class KTop:
             if random.random() < 0.5:
                 self._last_oom_str = None
             else:
-                fake_time = datetime.now() - timedelta(seconds=random.randint(0, 8 * 3600))
+                fake_time = datetime.now() - timedelta(
+                    seconds=random.randint(0, 8 * 3600)
+                )
                 proc = random.choice(self._SIM_PROCS)
                 self._last_oom_str = f"{fake_time.strftime('%b %d %H:%M:%S')} {proc}"
             return self._last_oom_str
@@ -749,10 +1327,21 @@ class KTop:
         # 1) Kernel OOM kills
         try:
             r = subprocess.run(
-                ["journalctl", "-k", "--since", "8 hours ago",
-                 "--no-pager", "-o", "short-unix", "--grep", "Killed process"],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                text=True, timeout=3,
+                [
+                    "journalctl",
+                    "-k",
+                    "--since",
+                    "8 hours ago",
+                    "--no-pager",
+                    "-o",
+                    "short-unix",
+                    "--grep",
+                    "Killed process",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=3,
             )
             if r.returncode == 0 and r.stdout.strip():
                 line = r.stdout.strip().splitlines()[-1]
@@ -766,10 +1355,22 @@ class KTop:
         # 2) systemd-oomd kills
         try:
             r = subprocess.run(
-                ["journalctl", "-u", "systemd-oomd", "--since", "8 hours ago",
-                 "--no-pager", "-o", "short-unix", "--grep", "Killed"],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                text=True, timeout=3,
+                [
+                    "journalctl",
+                    "-u",
+                    "systemd-oomd",
+                    "--since",
+                    "8 hours ago",
+                    "--no-pager",
+                    "-o",
+                    "short-unix",
+                    "--grep",
+                    "Killed",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=3,
             )
             if r.returncode == 0 and r.stdout.strip():
                 line = r.stdout.strip().splitlines()[-1]
@@ -800,7 +1401,10 @@ class KTop:
         gpus = self._gpu_info()
         if not gpus:
             return Panel(
-                Text("No GPUs detected (install pynvml for NVIDIA, or load amdgpu driver for AMD)", style="dim italic"),
+                Text(
+                    "No GPUs detected (install pynvml for NVIDIA, or load amdgpu driver for AMD)",
+                    style="dim italic",
+                ),
                 title=f"[bold {t['gpu']}] GPU [/bold {t['gpu']}]",
                 border_style=t["gpu"],
             )
@@ -808,24 +1412,35 @@ class KTop:
         gpu_layout = Layout()
         # Panel inner width: total / num_gpus, minus border(2) + padding(2) + safety(2)
         panel_w = max(20, self.console.width // max(len(gpus), 1) - 6)
-        # "Util " / "Mem  " = 5 chars, " XX.X%" = 7 chars
-        bar_w = max(5, panel_w - 5 - 7)
-        spark_w = max(10, panel_w - 5)
+        # "Util " / "Mem  " / "Power" = 6 chars, " XX.X%" = 7 chars
+        bar_w = max(5, panel_w - 6 - 7)
+        spark_w = max(10, panel_w - 6)
         children = []
         for g in gpus:
             uc = _color_for(g["util"], t)
             mc = _color_for(g["mem_pct"], t)
+            pc = _color_for(min(100, g["power_watts"] / 300 * 100), t)
             spark_u = _sparkline(self.gpu_util_hist[g["id"]], width=spark_w)
             spark_m = _sparkline(self.gpu_mem_hist[g["id"]], width=spark_w)
+            spark_p = _sparkline(self.gpu_power_hist[g["id"]], width=spark_w)
             body = (
-                f"[bold]Util[/bold] {_bar(g['util'], bar_w, t)} [{uc}]{g['util']:5.1f}%[/{uc}]\n"
-                f"     [{uc}]{spark_u}[/{uc}]\n"
+                f"[bold]Util[/bold]  {_bar(g['util'], bar_w, t)} [{uc}]{g['util']:5.1f}%[/{uc}]\n"
+                f"       [{uc}]{spark_u}[/{uc}]\n"
                 f"\n"
-                f"[bold]Mem [/bold] {_bar(g['mem_pct'], bar_w, t)} [{mc}]{g['mem_pct']:5.1f}%[/{mc}]\n"
-                f"     {g['mem_used_gb']:.1f}/{g['mem_total_gb']:.1f} GB\n"
-                f"     [{mc}]{spark_m}[/{mc}]"
+                f"[bold]Mem  [/bold] {_bar(g['mem_pct'], bar_w, t)} [{mc}]{g['mem_pct']:5.1f}%[/{mc}]\n"
+                f"       {g['mem_used_gb']:.1f}/{g['mem_total_gb']:.1f} GB\n"
+                f"       [{mc}]{spark_m}[/{mc}]\n"
+                f"\n"
+                f"[bold]Power[/bold] {_bar(min(100, g['power_watts'] / 300 * 100), bar_w, t)} [{pc}]{g['power_watts']:6.1f} W[/{pc}]\n"
+                f"       [{pc}]{spark_p}[/{pc}]"
             )
-            name_short = g["name"].replace("NVIDIA ", "").replace("AMD ", "").replace("Advanced Micro Devices, Inc. ", "").replace(" Generation", "")
+            name_short = (
+                g["name"]
+                .replace("NVIDIA ", "")
+                .replace("AMD ", "")
+                .replace("Advanced Micro Devices, Inc. ", "")
+                .replace(" Generation", "")
+            )
             panel = Panel(
                 Text.from_markup(body),
                 title=f"[bold {t['gpu']}] GPU {g['id']} [/bold {t['gpu']}]",
@@ -848,7 +1463,9 @@ class KTop:
         if now - self._last_freq_check >= 5.0:
             self._last_freq_check = now
             try:
-                with open("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "rb") as f:
+                with open(
+                    "/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "rb"
+                ) as f:
                     self._cpu_freq_str = f"{int(f.read()) / 1000:.0f} MHz"
             except (FileNotFoundError, ValueError, OSError):
                 # Fallback to psutil on systems without sysfs cpufreq
@@ -976,9 +1593,15 @@ class KTop:
                 table.add_row(pid, name, used, shared, f"{mem_pct:.1f}%")
             else:
                 sys_pct = cpu_pct / self._num_cpus
-                table.add_row(pid, name, f"{cpu_pct:.1f}%", f"{sys_pct:.1f}%", f"{mem_pct:.1f}%")
+                table.add_row(
+                    pid, name, f"{cpu_pct:.1f}%", f"{sys_pct:.1f}%", f"{mem_pct:.1f}%"
+                )
 
-        return Panel(table, title=f"[bold {colour}] {title} [/bold {colour}]", border_style=colour)
+        return Panel(
+            table,
+            title=f"[bold {colour}] {title} [/bold {colour}]",
+            border_style=colour,
+        )
 
     def _status_bar(self) -> Table:
         t = self.theme
@@ -1051,7 +1674,9 @@ class KTop:
             table.add_row(*cells)
 
         tc = t["bar_mid"]
-        return Panel(table, title=f"[bold {tc}] Temps [/bold {tc}]", border_style=tc, height=3)
+        return Panel(
+            table, title=f"[bold {tc}] Temps [/bold {tc}]", border_style=tc, height=3
+        )
 
     # ── theme picker ─────────────────────────────────────────────────────
     def _theme_picker(self) -> Layout:
@@ -1073,7 +1698,9 @@ class KTop:
             table.add_column(ratio=1)
 
         total_rows = (total + cols - 1) // cols
-        for row_idx in range(self.theme_scroll, min(self.theme_scroll + visible_rows, total_rows)):
+        for row_idx in range(
+            self.theme_scroll, min(self.theme_scroll + visible_rows, total_rows)
+        ):
             cells = []
             for col_idx in range(cols):
                 i = row_idx * cols + col_idx
@@ -1105,7 +1732,9 @@ class KTop:
                     swatch.append(" ")
                     swatch.append("  ", style=f"on {th['bar_mid']}")
                     # Nested table for left name + right-aligned swatches
-                    cell = Table(box=None, pad_edge=False, show_header=False, expand=True)
+                    cell = Table(
+                        box=None, pad_edge=False, show_header=False, expand=True
+                    )
                     cell.add_column(ratio=1)
                     cell.add_column(justify="right")
                     cell.add_row(name_text, swatch)
@@ -1147,7 +1776,9 @@ class KTop:
             Layout(name="hint", size=1),
         )
         outer["body"].update(
-            Panel(inner, title="[bold] Select Theme [/bold]", border_style="bright_white")
+            Panel(
+                inner, title="[bold] Select Theme [/bold]", border_style="bright_white"
+            )
         )
         outer["hint"].update(hint)
         return outer
@@ -1173,7 +1804,9 @@ class KTop:
         self._prof_last_flush = now
         if not self._prof_accum:
             return
-        lines = [f"\n── frame {self._prof_frame} @ {datetime.now().strftime('%H:%M:%S')} ──\n"]
+        lines = [
+            f"\n── frame {self._prof_frame} @ {datetime.now().strftime('%H:%M:%S')} ──\n"
+        ]
         lines.append(f"{'Section':<20} {'avg ms':>8} {'max ms':>8} {'calls':>6}\n")
         lines.append(f"{'─' * 20} {'─' * 8} {'─' * 8} {'─' * 6}\n")
         total_avg = 0.0
@@ -1218,8 +1851,14 @@ class KTop:
         layout["net"].update(self._prof_time("net_panel", self._net_panel))
         layout["cpu"].update(self._prof_time("cpu_panel", self._cpu_panel))
         layout["mem"].update(self._prof_time("mem_panel", self._mem_panel))
-        layout["mem_procs"].update(self._prof_time("proc_table_mem", lambda: self._proc_table("memory_percent")))
-        layout["cpu_procs"].update(self._prof_time("proc_table_cpu", lambda: self._proc_table("cpu_percent")))
+        layout["mem_procs"].update(
+            self._prof_time(
+                "proc_table_mem", lambda: self._proc_table("memory_percent")
+            )
+        )
+        layout["cpu_procs"].update(
+            self._prof_time("proc_table_cpu", lambda: self._proc_table("cpu_percent"))
+        )
         layout["temps"].update(self._prof_time("temp_strip", self._temp_strip))
         layout["status"].update(self._prof_time("status_bar", self._status_bar))
 
@@ -1306,20 +1945,31 @@ class KTop:
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description="ktop — system monitor for hybrid LLM workloads")
-    parser.add_argument(
-        "-v", "--version", action="version", version=f"ktop {__version__}",
+    parser = argparse.ArgumentParser(
+        description="ktop — system monitor for hybrid LLM workloads"
     )
     parser.add_argument(
-        "-r", "--refresh", type=float, default=1.0,
+        "-v",
+        "--version",
+        action="version",
+        version=f"ktop {__version__}",
+    )
+    parser.add_argument(
+        "-r",
+        "--refresh",
+        type=float,
+        default=1.0,
         help="Refresh interval in seconds (default: 1.0)",
     )
     parser.add_argument(
-        "--theme", type=str, default=None,
+        "--theme",
+        type=str,
+        default=None,
         help=f"Color theme (see theme picker with 't' key)",
     )
     parser.add_argument(
-        "--sim", action="store_true",
+        "--sim",
+        action="store_true",
         help="Simulation mode (fake OOM kills for testing)",
     )
     args = parser.parse_args()
