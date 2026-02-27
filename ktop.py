@@ -49,6 +49,7 @@ with warnings.catch_warnings():
             nvmlDeviceGetTemperatureThreshold,
             nvmlDeviceGetUtilizationRates,
             nvmlDeviceGetPowerUsage,
+            nvmlDeviceGetPowerManagementLimit,
             nvmlInit,
             nvmlShutdown,
         )
@@ -942,6 +943,7 @@ class KTop:
         self.gpu_util_hist: dict[int, deque] = {}
         self.gpu_mem_hist: dict[int, deque] = {}
         self.gpu_power_hist: dict[int, deque] = {}
+        self.gpu_power_limit: dict[int, float] = {}
 
         if _PYNVML:
             try:
@@ -952,6 +954,13 @@ class KTop:
                     self.gpu_util_hist[i] = deque(maxlen=HISTORY_LEN)
                     self.gpu_mem_hist[i] = deque(maxlen=HISTORY_LEN)
                     self.gpu_power_hist[i] = deque(maxlen=HISTORY_LEN)
+                    try:
+                        limit_mw = nvmlDeviceGetPowerManagementLimit(
+                            nvmlDeviceGetHandleByIndex(i)
+                        )
+                        self.gpu_power_limit[i] = limit_mw / 1000.0
+                    except Exception:
+                        self.gpu_power_limit[i] = 600.0
             except Exception:
                 pass
 
@@ -1125,6 +1134,7 @@ class KTop:
                     self.gpu_util_hist[i].append(util.gpu)
                     self.gpu_mem_hist[i].append(mem_pct)
                     self.gpu_power_hist[i].append(power / 1000.0)
+                    power_limit = self.gpu_power_limit.get(i, 600.0)
                     gpus.append(
                         {
                             "id": i,
@@ -1134,6 +1144,7 @@ class KTop:
                             "mem_total_gb": mem.total / 1024**3,
                             "mem_pct": mem_pct,
                             "power_watts": power / 1000.0,
+                            "power_limit": power_limit,
                         }
                     )
                 except Exception:
@@ -1169,11 +1180,19 @@ class KTop:
 
                 mem_pct = mem_used / mem_total * 100 if mem_total else 0
                 power_watts = 0.0
+                power_limit = 600.0
                 power_path = os.path.join(card["dev_dir"], "hwmon", "power1_input")
+                power_max_path = os.path.join(card["dev_dir"], "hwmon", "power1_max")
                 if os.path.isfile(power_path):
                     try:
                         with open(power_path) as f:
                             power_watts = int(f.read().strip()) / 1000.0
+                    except (OSError, ValueError):
+                        pass
+                if os.path.isfile(power_max_path):
+                    try:
+                        with open(power_max_path) as f:
+                            power_limit = int(f.read().strip()) / 1000.0
                     except (OSError, ValueError):
                         pass
                 self.gpu_util_hist[idx].append(util)
@@ -1188,6 +1207,7 @@ class KTop:
                         "mem_total_gb": mem_total / 1024**3,
                         "mem_pct": mem_pct,
                         "power_watts": power_watts,
+                        "power_limit": power_limit,
                     }
                 )
             except Exception:
@@ -1419,7 +1439,11 @@ class KTop:
         for g in gpus:
             uc = _color_for(g["util"], t)
             mc = _color_for(g["mem_pct"], t)
-            pc = _color_for(min(100, g["power_watts"] / 300 * 100), t)
+            power_limit = g.get("power_limit", 600.0)
+            power_pct = (
+                min(100, g["power_watts"] / power_limit * 100) if power_limit > 0 else 0
+            )
+            pc = _color_for(power_pct, t)
             spark_u = _sparkline(self.gpu_util_hist[g["id"]], width=spark_w)
             spark_m = _sparkline(self.gpu_mem_hist[g["id"]], width=spark_w)
             spark_p = _sparkline(self.gpu_power_hist[g["id"]], width=spark_w)
@@ -1431,7 +1455,7 @@ class KTop:
                 f"       {g['mem_used_gb']:.1f}/{g['mem_total_gb']:.1f} GB\n"
                 f"       [{mc}]{spark_m}[/{mc}]\n"
                 f"\n"
-                f"[bold]Power[/bold] {_bar(min(100, g['power_watts'] / 300 * 100), bar_w, t)} [{pc}]{g['power_watts']:6.1f} W[/{pc}]\n"
+                f"[bold]Power[/bold] {_bar(power_pct, bar_w, t)} [{pc}]{g['power_watts']:6.1f}/{power_limit:6.1f} W[/{pc}]\n"
                 f"       [{pc}]{spark_p}[/{pc}]"
             )
             name_short = (
