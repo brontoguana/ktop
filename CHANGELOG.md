@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0 — 2026-03-10
+
+- Complete rewrite from Python to Rust — single static binary (~1.2 MB)
+- Near-zero CPU and memory overhead (2-5 MB RAM vs 30-50 MB for Python version)
+- Instant startup, no runtime dependencies
+- One-line install script with automatic upgrades
+- GitHub Actions release workflow for x86_64 and aarch64 binaries
+- All features from 0.9.0 preserved: 50 themes, NVIDIA + AMD GPU monitoring, sparklines, OOM tracking, process tables, temperature strip
+
 ## 0.9.0 — 2026-02-11
 
 - **AMD GPU support** via Linux sysfs — no new dependencies required

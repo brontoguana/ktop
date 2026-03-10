@@ -8,6 +8,14 @@ A terminal-based system resource monitor built for tracking resource usage when 
 
 ## Features
 
+### Latest
+
+- Rewritten from Python to Rust — single static binary, near-zero CPU overhead, instant startup
+- One-line install and upgrade: `curl -sSfL https://raw.githubusercontent.com/brontoguana/ktop/master/install.sh | bash`
+- No runtime dependencies — no Python, no pip, no venv
+
+### Core
+
 - **GPU Monitoring** — Per-GPU utilization and memory usage with color-coded sparkline history (NVIDIA + AMD)
 - **Network Monitoring** — Upload/download speeds with separate colored sparklines (upload extends up, download extends down)
 - **CPU Monitoring** — Overall CPU usage with gradient bar chart and sparkline history
