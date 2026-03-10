@@ -4,7 +4,7 @@
 
 A terminal-based system resource monitor built for tracking resource usage when running hybrid LLM workloads.
 
-![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue)
+![Linux](https://img.shields.io/badge/platform-linux-blue)
 
 ## Features
 
@@ -22,12 +22,19 @@ A terminal-based system resource monitor built for tracking resource usage when 
 ## Install
 
 ```bash
-git clone https://github.com/brontoguana/ktop.git && cd ktop && ./setup.sh
+curl -sSfL https://raw.githubusercontent.com/brontoguana/ktop/master/install.sh | bash
 ```
 
-That's it — clones the repo, installs dependencies into a venv, adds `ktop` to `~/.local/bin`, and launches it.
+Downloads the latest binary and installs it to `/usr/local/bin` (will prompt for sudo if needed). Run the same command again to upgrade.
 
-For a system-wide install: `sudo ./setup.sh --system`
+### Build from source
+
+```bash
+git clone https://github.com/brontoguana/ktop.git
+cd ktop/ktop-rs
+cargo build --release
+sudo cp target/release/ktop /usr/local/bin/
+```
 
 ## Usage
 
@@ -59,11 +66,10 @@ ktop --version
 
 ## Requirements
 
-- Linux (reads `/proc` directly for performance)
-- Python 3.8+
-- NVIDIA GPU + drivers (optional — `pynvml` for NVIDIA monitoring)
-- AMD GPU + `amdgpu` driver (optional — uses sysfs, no extra dependencies)
-- Dependencies: `psutil`, `rich`, `nvidia-ml-py` or `pynvml` (optional, for NVIDIA)
+- Linux (reads `/proc` and sysfs directly)
+- NVIDIA GPU + drivers (optional — for NVIDIA monitoring)
+- AMD GPU + `amdgpu` driver (optional — for AMD monitoring)
+- No runtime dependencies — single static binary
 
 ## License
 
