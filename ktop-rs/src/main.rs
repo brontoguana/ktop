@@ -7,7 +7,7 @@ mod ui;
 
 use std::env;
 
-const VERSION: &str = "0.9.0";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     let mut refresh = 1.0f64;
