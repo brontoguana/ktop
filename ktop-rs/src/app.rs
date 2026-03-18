@@ -26,6 +26,7 @@ pub struct AppState {
 
     // CPU
     pub cpu_pct: f64,
+    pub cpu_total_pct: f64,
     pub cpu_hist: VecDeque<f64>,
     pub cpu_cores: usize,
     pub cpu_freq: String,
@@ -34,6 +35,8 @@ pub struct AppState {
     pub ram_pct: f64,
     pub ram_used: u64,
     pub ram_total: u64,
+    pub ram_available: u64,
+    pub ram_cached: u64,
     pub swap_pct: f64,
     pub swap_used: u64,
     pub swap_total: u64,
@@ -134,12 +137,15 @@ pub fn run(
         theme_cursor,
         theme_scroll: 0,
         cpu_pct: 0.0,
+        cpu_total_pct: 0.0,
         cpu_hist: VecDeque::with_capacity(HISTORY_LEN),
         cpu_cores: sys.cpus().len(),
         cpu_freq: system::read_cpu_freq().unwrap_or_else(|| "N/A".to_string()),
         ram_pct: 0.0,
         ram_used: 0,
         ram_total: 0,
+        ram_available: 0,
+        ram_cached: 0,
         swap_pct: 0.0,
         swap_used: 0,
         swap_total: 0,
@@ -186,6 +192,7 @@ pub fn run(
                 // Sample CPU
                 sys.refresh_cpu_usage();
                 state.cpu_pct = sys.global_cpu_usage() as f64;
+                state.cpu_total_pct = sys.cpus().iter().map(|c| c.cpu_usage() as f64).sum();
                 state.cpu_hist.push_back(state.cpu_pct);
                 if state.cpu_hist.len() > HISTORY_LEN {
                     state.cpu_hist.pop_front();
@@ -207,6 +214,9 @@ pub fn run(
                 } else {
                     0.0
                 };
+                let (avail, cached) = system::read_available_cached();
+                state.ram_available = avail;
+                state.ram_cached = cached;
                 state.swap_total = sys.total_swap();
                 state.swap_used = sys.used_swap();
                 state.swap_pct = if state.swap_total > 0 {

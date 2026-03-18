@@ -412,6 +412,27 @@ fn chrono_format_full(epoch: f64) -> String {
             month, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec)
 }
 
+// ── Available/Cached from /proc/meminfo ──
+
+pub fn read_available_cached() -> (u64, u64) {
+    let mut available: u64 = 0;
+    let mut cached: u64 = 0;
+    if let Ok(contents) = fs::read_to_string("/proc/meminfo") {
+        for line in contents.lines() {
+            if let Some(rest) = line.strip_prefix("MemAvailable:") {
+                if let Ok(kb) = rest.trim().trim_end_matches(" kB").trim().parse::<u64>() {
+                    available = kb * 1024;
+                }
+            } else if let Some(rest) = line.strip_prefix("Cached:") {
+                if let Ok(kb) = rest.trim().trim_end_matches(" kB").trim().parse::<u64>() {
+                    cached = kb * 1024;
+                }
+            }
+        }
+    }
+    (available, cached)
+}
+
 // ── CPU frequency from sysfs ──
 
 pub fn read_cpu_freq() -> Option<String> {

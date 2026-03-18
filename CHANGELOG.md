@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2 — 2026-03-18
+
+- Show total CPU percentage across all cores (e.g. 400% = 4 cores maxed)
+- Show available RAM and disk cache size under memory section
+
 ## 1.0.0 — 2026-03-10
 
 - Complete rewrite from Python to Rust — single static binary (~1.2 MB)

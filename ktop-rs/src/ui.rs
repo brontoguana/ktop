@@ -313,7 +313,10 @@ fn render_cpu(f: &mut Frame, area: Rect, state: &AppState) {
     lines.push(Line::from(overall));
 
     lines.push(Line::from(Span::styled(
-        format!("Cores: {}  Freq: {}", state.cpu_cores, state.cpu_freq),
+        format!(
+            "Cores: {}  Total: {:.0}%  Freq: {}",
+            state.cpu_cores, state.cpu_total_pct, state.cpu_freq
+        ),
         Style::default().fg(Color::DarkGray),
     )));
     lines.push(Line::from(""));
@@ -396,10 +399,21 @@ fn render_mem(f: &mut Frame, area: Rect, state: &AppState) {
     swap_line.extend(swap_bar);
     swap_line.push(Span::styled(format!(" {:5.1}%", swap_pct), Style::default().fg(Color::DarkGray)));
     lines.push(Line::from(swap_line));
-    lines.push(Line::from(format!(
-        "  {} used / {}",
-        fmt_bytes(state.swap_used as f64),
-        fmt_bytes(state.swap_total as f64)
+    lines.push(Line::from(Span::styled(
+        format!(
+            "  {} used / {}",
+            fmt_bytes(state.swap_used as f64),
+            fmt_bytes(state.swap_total as f64)
+        ),
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(Span::styled(
+        format!(
+            "  {} avail  Cache: {}",
+            fmt_bytes(state.ram_available as f64),
+            fmt_bytes(state.ram_cached as f64)
+        ),
+        Style::default().fg(Color::DarkGray),
     )));
 
     let block = styled_block("Memory", theme.mem);
