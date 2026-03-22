@@ -9,3 +9,12 @@ Then copy the binary to install locally:
 **CRITICALLY IMPORTANT INSTRUCTIONS BELOW THIS LINE**
 
 **You must NEVER PUSH TO GITHUB without explicitly asking the user!**
+
+## Changelog
+
+### v1.0.4
+- Switch from musl static linking to glibc dynamic linking for NVIDIA GPU compatibility
+- musl binaries can't dlopen glibc-linked .so files (like libnvidia-ml.so), causing GPU detection to silently fail
+- CI now uses `cross` tool to build in older-glibc Docker containers for portability
+- install.sh updated to fetch gnu-targeted binaries
+- Tested: local build, version check, ldd confirms dynamic linking
