@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3 — 2026-03-22
+
+- Static linking via musl — binary now runs on any Linux distro regardless of GLIBC version
+- No more "GLIBC_2.xx not found" errors on older systems
+- Install script updated for new musl-linked binaries
+
 ## 1.0.2 — 2026-03-18
 
 - Show total CPU percentage across all cores (e.g. 400% = 4 cores maxed)
