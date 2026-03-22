@@ -77,4 +77,27 @@ fi
 
 echo ""
 echo "ktop ${LATEST} installed to ${INSTALL_DIR}/${BINARY_NAME}"
+
+# Check for stale installs that might shadow the new binary
+WHICH_KTOP=$(command -v ktop 2>/dev/null || true)
+if [ -n "$WHICH_KTOP" ] && [ "$WHICH_KTOP" != "${INSTALL_DIR}/${BINARY_NAME}" ]; then
+    # Check if it's a script (old Python wrapper) rather than an ELF binary
+    if file "$WHICH_KTOP" 2>/dev/null | grep -q "text"; then
+        echo "WARNING: Found old ktop at $WHICH_KTOP that shadows this install."
+        echo "It appears to be a script (likely the old Python version)."
+        read -r -p "Remove it? [Y/n] " REPLY </dev/tty 2>/dev/null || REPLY="n"
+        REPLY=${REPLY:-Y}
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            rm -f "$WHICH_KTOP" 2>/dev/null || sudo rm -f "$WHICH_KTOP"
+            echo "Removed $WHICH_KTOP"
+        else
+            echo "To fix manually: rm $WHICH_KTOP"
+        fi
+    else
+        echo "Note: another ktop exists at $WHICH_KTOP"
+        echo "The new install is at ${INSTALL_DIR}/${BINARY_NAME}"
+        echo "Make sure ${INSTALL_DIR} comes first in your PATH, or remove the old one."
+    fi
+fi
+
 echo "Run 'ktop' to start."
