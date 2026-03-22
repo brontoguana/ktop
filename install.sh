@@ -90,6 +90,8 @@ if [ -n "$WHICH_KTOP" ] && [ "$WHICH_KTOP" != "${INSTALL_DIR}/${BINARY_NAME}" ];
         if [[ "$REPLY" =~ ^[Yy]$ ]]; then
             rm -f "$WHICH_KTOP" 2>/dev/null || sudo rm -f "$WHICH_KTOP"
             echo "Removed $WHICH_KTOP"
+            echo "Run 'hash -r' to refresh your shell's path cache, then 'ktop' to start."
+            exit 0
         else
             echo "To fix manually: rm $WHICH_KTOP"
         fi
