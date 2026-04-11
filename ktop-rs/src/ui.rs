@@ -589,43 +589,56 @@ fn render_proc_table(f: &mut Frame, area: Rect, state: &AppState, by_mem: bool) 
 
 fn render_status_bar(f: &mut Frame, area: Rect, state: &AppState) {
     let theme = &state.theme;
-    let mut spans = vec![
+    let left_spans = vec![
         Span::styled(" q", Style::default().fg(theme.cpu).add_modifier(Modifier::BOLD)),
         Span::styled("/", Style::default().fg(Color::DarkGray)),
         Span::styled("ESC", Style::default().fg(theme.cpu).add_modifier(Modifier::BOLD)),
         Span::styled(" Quit  ", Style::default().fg(Color::DarkGray)),
         Span::styled(" t", Style::default().fg(theme.gpu).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" Theme ({})  ", state.theme_name), Style::default().fg(Color::DarkGray)),
+        Span::styled(" Theme", Style::default().fg(Color::DarkGray)),
     ];
 
+    let power_text = match state.est_power_watts {
+        Some(power) => format!("PWR ~{}W  ", power.round() as u64),
+        None => "PWR n/a  ".to_string(),
+    };
+    let oom_text = if let Some(ref oom) = state.oom_str {
+        format!("█ OOM Kill: {}", oom)
+    } else {
+        "░ No OOM kills".to_string()
+    };
+    let right_len = power_text.len() + oom_text.len();
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(right_len as u16)])
+        .split(area);
+
+    f.render_widget(Paragraph::new(Line::from(left_spans)), chunks[0]);
+
+    let mut right_spans = Vec::new();
     match state.est_power_watts {
-        Some(power) => spans.push(Span::styled(
+        Some(power) => right_spans.push(Span::styled(
             format!("PWR ~{}W  ", power.round() as u64),
             Style::default().fg(theme.mem).add_modifier(Modifier::BOLD),
         )),
-        None => spans.push(Span::styled(
+        None => right_spans.push(Span::styled(
             "PWR n/a  ",
             Style::default().fg(Color::DarkGray),
         )),
     }
-
-    // Add padding to push OOM to the right
-    let left_len: usize = spans.iter().map(|s| s.content.len()).sum();
-    let oom_text = if let Some(ref oom) = state.oom_str {
-        format!("█ OOM Kill: {} ", oom)
-    } else {
-        "░ No OOM kills ".to_string()
-    };
-    let padding = (area.width as usize).saturating_sub(left_len + oom_text.len());
-    spans.push(Span::raw(" ".repeat(padding)));
-
     if state.oom_str.is_some() {
-        spans.push(Span::styled(&oom_text, Style::default().fg(theme.bar_high).add_modifier(Modifier::BOLD)));
+        right_spans.push(Span::styled(
+            oom_text,
+            Style::default().fg(theme.bar_high).add_modifier(Modifier::BOLD),
+        ));
     } else {
-        spans.push(Span::styled(oom_text, Style::default().fg(Color::DarkGray)));
+        right_spans.push(Span::styled(oom_text, Style::default().fg(Color::DarkGray)));
     }
 
-    f.render_widget(Paragraph::new(Line::from(spans)), area);
+    f.render_widget(
+        Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right),
+        chunks[1],
+    );
 }
 
 // ── Theme picker ──

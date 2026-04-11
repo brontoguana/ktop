@@ -12,6 +12,11 @@ Then copy the binary to install locally:
 
 ## Changelog
 
+### v1.0.7
+- Keep the footer power slot visible on narrower terminals by right-anchoring power and OOM status
+- Let the left-side help text truncate first instead of clipping PWR off the screen
+- Tested: `cargo build --release`
+
 ### v1.0.6
 - Always show the footer power slot
 - Display `PWR n/a` when the host exposes no usable power telemetry instead of hiding the field entirely
