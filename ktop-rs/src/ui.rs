@@ -598,11 +598,15 @@ fn render_status_bar(f: &mut Frame, area: Rect, state: &AppState) {
         Span::styled(format!(" Theme ({})  ", state.theme_name), Style::default().fg(Color::DarkGray)),
     ];
 
-    if let Some(power) = state.est_power_watts {
-        spans.push(Span::styled(
+    match state.est_power_watts {
+        Some(power) => spans.push(Span::styled(
             format!("PWR ~{}W  ", power.round() as u64),
             Style::default().fg(theme.mem).add_modifier(Modifier::BOLD),
-        ));
+        )),
+        None => spans.push(Span::styled(
+            "PWR n/a  ",
+            Style::default().fg(Color::DarkGray),
+        )),
     }
 
     // Add padding to push OOM to the right
@@ -612,7 +616,7 @@ fn render_status_bar(f: &mut Frame, area: Rect, state: &AppState) {
     } else {
         "░ No OOM kills ".to_string()
     };
-    let padding = area.width as usize - left_len.min(area.width as usize) - oom_text.len().min(area.width as usize);
+    let padding = (area.width as usize).saturating_sub(left_len + oom_text.len());
     spans.push(Span::raw(" ".repeat(padding)));
 
     if state.oom_str.is_some() {

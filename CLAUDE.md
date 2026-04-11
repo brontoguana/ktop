@@ -12,6 +12,12 @@ Then copy the binary to install locally:
 
 ## Changelog
 
+### v1.0.6
+- Always show the footer power slot
+- Display `PWR n/a` when the host exposes no usable power telemetry instead of hiding the field entirely
+- Use saturating footer padding so the power segment is not squeezed out on narrower terminals
+- Tested: `cargo build --release`
+
 ### v1.0.5
 - Add footer power estimate segment before OOM status when live sensors are available
 - Estimate uses CPU package power from Linux powercap/hwmon plus NVIDIA NVML and AMD hwmon GPU power
