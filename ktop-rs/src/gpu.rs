@@ -75,6 +75,20 @@ impl NvidiaState {
         gpus
     }
 
+    pub fn power_watts(&self) -> Vec<Option<f64>> {
+        let mut powers = Vec::new();
+        for i in 0..self.count {
+            let power = self
+                .nvml
+                .device_by_index(i as u32)
+                .ok()
+                .and_then(|dev| dev.power_usage().ok())
+                .map(|mw| mw as f64 / 1000.0);
+            powers.push(power);
+        }
+        powers
+    }
+
     pub fn temps(&self) -> Vec<Option<GpuTemp>> {
         let mut temps = Vec::new();
         for i in 0..self.count {
@@ -111,6 +125,8 @@ pub struct AmdCard {
     pub has_vram: bool,
     pub temp_path: Option<PathBuf>,
     pub temp_crit_path: Option<PathBuf>,
+    pub power_path: Option<PathBuf>,
+    pub power_scale: f64,
 }
 
 pub fn detect_amd_gpus() -> Vec<AmdCard> {
@@ -173,6 +189,8 @@ pub fn detect_amd_gpus() -> Vec<AmdCard> {
         // hwmon temp paths
         let mut temp_path = None;
         let mut temp_crit_path = None;
+        let mut power_path = None;
+        let mut power_scale = 1_000_000.0;
         let hwmon_dir = dev_dir.join("hwmon");
         if hwmon_dir.is_dir() {
             if let Ok(entries) = fs::read_dir(&hwmon_dir) {
@@ -187,6 +205,17 @@ pub fn detect_amd_gpus() -> Vec<AmdCard> {
                     if tc.is_file() {
                         temp_crit_path = Some(tc);
                     }
+                    let p_avg = hw.path().join("power1_average");
+                    let p_input = hw.path().join("power1_input");
+                    if p_avg.is_file() {
+                        power_path = Some(p_avg);
+                    } else if p_input.is_file() {
+                        power_path = Some(p_input);
+                    }
+                    let p_cap = hw.path().join("power1_cap");
+                    if !p_cap.is_file() {
+                        power_scale = 1_000_000.0;
+                    }
                 }
             }
         }
@@ -200,6 +229,8 @@ pub fn detect_amd_gpus() -> Vec<AmdCard> {
             has_vram,
             temp_path,
             temp_crit_path,
+            power_path,
+            power_scale,
         });
     }
     cards
@@ -258,6 +289,13 @@ impl AmdCard {
             .map(|v| v / 1000.0)
             .unwrap_or(95.0);
         Some(GpuTemp { temp: t, max })
+    }
+
+    pub fn power_watts(&self) -> Option<f64> {
+        let path = self.power_path.as_ref()?;
+        let raw = fs::read_to_string(path).ok()?;
+        let value = raw.trim().parse::<f64>().ok()?;
+        Some(value / self.power_scale)
     }
 }
 

@@ -12,6 +12,12 @@ Then copy the binary to install locally:
 
 ## Changelog
 
+### v1.0.5
+- Add footer power estimate segment before OOM status when live sensors are available
+- Estimate uses CPU package power from Linux powercap/hwmon plus NVIDIA NVML and AMD hwmon GPU power
+- Hide the power field when the host exposes no usable power sensors instead of showing a fake value
+- Tested: `cargo build --release`
+
 ### v1.0.4
 - Switch from musl static linking to glibc dynamic linking for NVIDIA GPU compatibility
 - musl binaries can't dlopen glibc-linked .so files (like libnvidia-ml.so), causing GPU detection to silently fail

@@ -67,6 +67,7 @@ pub struct AppState {
 
     // OOM
     pub oom_str: Option<String>,
+    pub est_power_watts: Option<f64>,
 }
 
 pub fn run(
@@ -121,6 +122,7 @@ pub fn run(
     let mut net_tracker = NetTracker::new(&sys);
     let mut proc_scanner = ProcScanner::new();
     let mut oom_tracker = OomTracker::new(sim);
+    let mut power_estimator = system::PowerEstimator::new();
     let mut last_freq_check = Instant::now() - Duration::from_secs(10);
 
     // Terminal setup
@@ -166,6 +168,7 @@ pub fn run(
         procs_by_cpu: Vec::new(),
         num_cpus: proc_scanner.num_cpus(),
         oom_str: None,
+        est_power_watts: None,
     };
 
     let refresh_dur = Duration::from_secs_f64(refresh);
@@ -258,6 +261,19 @@ pub fn run(
                     gpu_temps.push(card.temp());
                 }
                 state.gpu_temps = gpu_temps;
+
+                let cpu_power = power_estimator.sample_cpu_watts();
+                let nvidia_power = nvidia
+                    .as_ref()
+                    .map(|nv| nv.power_watts().into_iter().flatten().sum::<f64>())
+                    .unwrap_or(0.0);
+                let amd_power: f64 = amd_cards.iter().filter_map(|card| card.power_watts()).sum();
+                let total_power = cpu_power.unwrap_or(0.0) + nvidia_power + amd_power;
+                state.est_power_watts = if cpu_power.is_some() || nvidia_power > 0.0 || amd_power > 0.0 {
+                    Some(total_power)
+                } else {
+                    None
+                };
 
                 // CPU temps via sysinfo
                 sample_temps(&sys, &mut state);

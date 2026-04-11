@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::Instant;
 
@@ -443,6 +444,172 @@ pub fn read_cpu_freq() -> Option<String> {
         }
     }
     None
+}
+
+// ── Power estimation from Linux sensors ──
+
+struct RaplZone {
+    energy_uj_path: PathBuf,
+    max_energy_uj: u64,
+    last_energy_uj: Option<u64>,
+}
+
+pub struct PowerEstimator {
+    rapl_zones: Vec<RaplZone>,
+    hwmon_cpu_power_paths: Vec<PathBuf>,
+    last_sample: Instant,
+    pub cpu_watts: Option<f64>,
+}
+
+impl PowerEstimator {
+    pub fn new() -> Self {
+        Self {
+            rapl_zones: detect_rapl_zones(),
+            hwmon_cpu_power_paths: detect_hwmon_cpu_power_paths(),
+            last_sample: Instant::now(),
+            cpu_watts: None,
+        }
+    }
+
+    pub fn sample_cpu_watts(&mut self) -> Option<f64> {
+        let now = Instant::now();
+        let dt = now.duration_since(self.last_sample).as_secs_f64();
+        self.last_sample = now;
+
+        let rapl = if dt > 0.0 {
+            sample_rapl_cpu_watts(&mut self.rapl_zones, dt)
+        } else {
+            None
+        };
+        let hwmon = sample_hwmon_cpu_watts(&self.hwmon_cpu_power_paths);
+
+        self.cpu_watts = rapl.or(hwmon);
+        self.cpu_watts
+    }
+}
+
+fn detect_rapl_zones() -> Vec<RaplZone> {
+    let mut zones = Vec::new();
+    let base = PathBuf::from("/sys/class/powercap");
+    let entries = match fs::read_dir(&base) {
+        Ok(entries) => entries,
+        Err(_) => return zones,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("intel-rapl:") {
+            continue;
+        }
+        if name.matches(':').count() != 1 {
+            continue;
+        }
+
+        let zone_name = fs::read_to_string(path.join("name"))
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        if zone_name.contains("psys") {
+            continue;
+        }
+
+        let energy_uj_path = path.join("energy_uj");
+        let max_energy_path = path.join("max_energy_range_uj");
+        if !energy_uj_path.is_file() || !max_energy_path.is_file() {
+            continue;
+        }
+        let max_energy_uj = fs::read_to_string(max_energy_path)
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        if max_energy_uj == 0 {
+            continue;
+        }
+
+        zones.push(RaplZone {
+            energy_uj_path,
+            max_energy_uj,
+            last_energy_uj: None,
+        });
+    }
+
+    zones
+}
+
+fn sample_rapl_cpu_watts(zones: &mut [RaplZone], dt: f64) -> Option<f64> {
+    let mut total_watts = 0.0;
+    let mut found = false;
+
+    for zone in zones {
+        let energy_uj = match fs::read_to_string(&zone.energy_uj_path)
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+        {
+            Some(value) => value,
+            None => continue,
+        };
+
+        if let Some(prev) = zone.last_energy_uj {
+            let delta_uj = if energy_uj >= prev {
+                energy_uj - prev
+            } else {
+                (zone.max_energy_uj.saturating_sub(prev)) + energy_uj
+            };
+            total_watts += delta_uj as f64 / 1_000_000.0 / dt;
+            found = true;
+        }
+
+        zone.last_energy_uj = Some(energy_uj);
+    }
+
+    found.then_some(total_watts)
+}
+
+fn detect_hwmon_cpu_power_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let entries = match fs::read_dir("/sys/class/hwmon") {
+        Ok(entries) => entries,
+        Err(_) => return paths,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = fs::read_to_string(path.join("name"))
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        if !matches!(name.as_str(), "zenpower" | "k10temp" | "coretemp") {
+            continue;
+        }
+
+        let power1_average = path.join("power1_average");
+        let power1_input = path.join("power1_input");
+        if power1_average.is_file() {
+            paths.push(power1_average);
+        } else if power1_input.is_file() {
+            paths.push(power1_input);
+        }
+    }
+
+    paths
+}
+
+fn sample_hwmon_cpu_watts(paths: &[PathBuf]) -> Option<f64> {
+    let mut total = 0.0;
+    let mut found = false;
+    for path in paths {
+        let value = match fs::read_to_string(path)
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+        {
+            Some(value) => value,
+            None => continue,
+        };
+        total += value / 1_000_000.0;
+        found = true;
+    }
+    found.then_some(total)
 }
 
 // ── Network speeds ──

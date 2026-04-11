@@ -598,6 +598,13 @@ fn render_status_bar(f: &mut Frame, area: Rect, state: &AppState) {
         Span::styled(format!(" Theme ({})  ", state.theme_name), Style::default().fg(Color::DarkGray)),
     ];
 
+    if let Some(power) = state.est_power_watts {
+        spans.push(Span::styled(
+            format!("PWR ~{}W  ", power.round() as u64),
+            Style::default().fg(theme.mem).add_modifier(Modifier::BOLD),
+        ));
+    }
+
     // Add padding to push OOM to the right
     let left_len: usize = spans.iter().map(|s| s.content.len()).sum();
     let oom_text = if let Some(ref oom) = state.oom_str {
