@@ -89,6 +89,28 @@ impl NvidiaState {
         powers
     }
 
+    pub fn power_with_limits(&self) -> Vec<(Option<f64>, f64)> {
+        let mut results = Vec::new();
+        for i in 0..self.count {
+            let (power, limit) = self
+                .nvml
+                .device_by_index(i as u32)
+                .ok()
+                .map(|dev| {
+                    let power = dev.power_usage().ok().map(|mw| mw as f64 / 1000.0);
+                    let limit_mw = dev
+                        .power_management_limit()
+                        .ok()
+                        .unwrap_or(600_000);
+                    let limit = limit_mw as f64 / 1000.0;
+                    (power, limit)
+                })
+                .unwrap_or((None, 600.0));
+            results.push((power, limit));
+        }
+        results
+    }
+
     pub fn temps(&self) -> Vec<Option<GpuTemp>> {
         let mut temps = Vec::new();
         for i in 0..self.count {
@@ -296,6 +318,34 @@ impl AmdCard {
         let raw = fs::read_to_string(path).ok()?;
         let value = raw.trim().parse::<f64>().ok()?;
         Some(value / self.power_scale)
+    }
+
+    pub fn power_with_limit(&self) -> Option<(f64, f64)> {
+        let power_path = self.power_path.as_ref()?;
+        let raw = fs::read_to_string(power_path).ok()?;
+        let value = raw.trim().parse::<f64>().ok()?;
+        let power = value / self.power_scale;
+        
+        let power_cap_path = self
+            .power_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("power1_cap"));
+        let limit = if let Some(cap_path) = power_cap_path {
+            if cap_path.is_file() {
+                fs::read_to_string(&cap_path)
+                    .ok()
+                    .and_then(|v| v.trim().parse::<f64>().ok())
+                    .map(|v| v / self.power_scale)
+                    .unwrap_or(600.0)
+            } else {
+                600.0
+            }
+        } else {
+            600.0
+        };
+        
+        Some((power, limit))
     }
 }
 

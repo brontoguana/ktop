@@ -1,6 +1,15 @@
 # Changelog
 
-## 1.0.3 — 2026-03-22
+## 1.0.8 — 2026-04-12
+
+- Add per-GPU power monitoring with power bar and current/limit display
+- NVIDIA GPUs: query power via NVML `nvmlDeviceGetPowerUsage()` and limit via `nvmlDeviceGetPowerManagementLimit()`
+- AMD GPUs: read power from hwmon `power1_input` and limit from `power1_cap` sysfs
+- Power bar scales to each GPU's specific power limit instead of fixed 600W
+- Power display shows `current/limit W` with color-coded bar (green→yellow→red)
+- Tested: `cargo build --release`, version check, ldd confirms dynamic linking
+
+## 1.0.7 — 2026-03-22
 
 - Static linking via musl — binary now runs on any Linux distro regardless of GLIBC version
 - No more "GLIBC_2.xx not found" errors on older systems
