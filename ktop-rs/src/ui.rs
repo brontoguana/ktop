@@ -227,17 +227,37 @@ fn render_gpu(f: &mut Frame, area: Rect, state: &AppState) {
 
     for (i, g) in gpus.iter().enumerate() {
         let inner_w = gpu_chunks[i].width.saturating_sub(4) as usize;
-        let bar_w = inner_w.saturating_sub(14).max(5);
-        let spark_w = inner_w.saturating_sub(6).max(10);
+        let bar_w = inner_w.saturating_sub(18).max(5);
+        let _spark_w = inner_w.saturating_sub(10).max(10);
 
         let uc = color_for_pct(g.util, theme);
         let mc = color_for_pct(g.mem_pct, theme);
+        let (power_watts, power_limit) = (
+            state.gpu_power_watts.get(&g.id).copied().unwrap_or(0.0),
+            state.gpu_power_limits.get(&g.id).copied().unwrap_or(600.0),
+        );
+        let power_pct = if power_limit > 0.0 {
+            (power_watts / power_limit * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+        let pc = if power_pct < 60.0 {
+            theme.bar_low
+        } else if power_pct < 85.0 {
+            theme.bar_mid
+        } else {
+            theme.bar_high
+        };
 
         let util_bar = bar_spans(g.util, bar_w, theme);
         let mem_bar = bar_spans(g.mem_pct, bar_w, theme);
+        let power_bar = bar_spans(power_pct, bar_w, theme);
 
-        let spark_u = state.gpu_util_hist.get(&g.id).map(|h| sparkline(h, spark_w)).unwrap_or_default();
-        let spark_m = state.gpu_mem_hist.get(&g.id).map(|h| sparkline(h, spark_w)).unwrap_or_default();
+        let spark_p = if power_watts > 0.0 {
+            format!("{:.1} W", power_watts)
+        } else {
+            "N/A".to_string()
+        };
 
         let mut lines = Vec::new();
 
@@ -246,9 +266,6 @@ fn render_gpu(f: &mut Frame, area: Rect, state: &AppState) {
         util_line.extend(util_bar);
         util_line.push(Span::styled(format!(" {:5.1}%", g.util), Style::default().fg(uc)));
         lines.push(Line::from(util_line));
-
-        // Util sparkline
-        lines.push(Line::from(Span::styled(format!("     {}", spark_u), Style::default().fg(uc))));
         lines.push(Line::from(""));
 
         // Mem line
@@ -256,12 +273,18 @@ fn render_gpu(f: &mut Frame, area: Rect, state: &AppState) {
         mem_line.extend(mem_bar);
         mem_line.push(Span::styled(format!(" {:5.1}%", g.mem_pct), Style::default().fg(mc)));
         lines.push(Line::from(mem_line));
-
-        // Mem info
         lines.push(Line::from(format!("     {:.1}/{:.1} GB", g.mem_used_gb, g.mem_total_gb)));
+        lines.push(Line::from(""));
 
-        // Mem sparkline
-        lines.push(Line::from(Span::styled(format!("     {}", spark_m), Style::default().fg(mc))));
+        // Power line
+        let mut power_line = vec![Span::styled("Power", Style::default().add_modifier(Modifier::BOLD))];
+        power_line.extend(power_bar);
+        power_line.push(Span::styled(
+            format!(" {:6.1}/{:6.1} W", power_watts, power_limit),
+            Style::default().fg(pc),
+        ));
+        lines.push(Line::from(power_line));
+        lines.push(Line::from(Span::styled(format!("     {}", spark_p), Style::default().fg(pc))));
 
         let name_short = g.name
             .replace("NVIDIA ", "")

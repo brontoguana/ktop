@@ -45,6 +45,8 @@ pub struct AppState {
     pub gpu_infos: Vec<GpuInfo>,
     pub gpu_util_hist: HashMap<usize, VecDeque<f64>>,
     pub gpu_mem_hist: HashMap<usize, VecDeque<f64>>,
+    pub gpu_power_watts: HashMap<usize, f64>,
+    pub gpu_power_limits: HashMap<usize, f64>,
 
     // Network
     pub net_up: f64,
@@ -154,6 +156,8 @@ pub fn run(
         gpu_infos: Vec::new(),
         gpu_util_hist,
         gpu_mem_hist,
+        gpu_power_watts: HashMap::new(),
+        gpu_power_limits: HashMap::new(),
         net_up: 0.0,
         net_down: 0.0,
         net_up_hist: VecDeque::with_capacity(HISTORY_LEN),
@@ -262,14 +266,31 @@ pub fn run(
                 }
                 state.gpu_temps = gpu_temps;
 
+                // GPU power (per-GPU)
+                let mut gpu_power_watts = HashMap::new();
+                let mut gpu_power_limits = HashMap::new();
+                if let Some(ref nv) = nvidia {
+                    for (i, (power, limit)) in nv.power_with_limits().into_iter().enumerate() {
+                        if let Some(p) = power {
+                            gpu_power_watts.insert(i, p);
+                        }
+                        gpu_power_limits.insert(i, limit);
+                    }
+                }
+                for (j, card) in amd_cards.iter().enumerate() {
+                    let idx = nvidia_count + j;
+                    if let Some((power, limit)) = card.power_with_limit() {
+                        gpu_power_watts.insert(idx, power);
+                        gpu_power_limits.insert(idx, limit);
+                    }
+                }
+                state.gpu_power_watts = gpu_power_watts;
+                state.gpu_power_limits = gpu_power_limits;
+
                 let cpu_power = power_estimator.sample_cpu_watts();
-                let nvidia_power = nvidia
-                    .as_ref()
-                    .map(|nv| nv.power_watts().into_iter().flatten().sum::<f64>())
-                    .unwrap_or(0.0);
-                let amd_power: f64 = amd_cards.iter().filter_map(|card| card.power_watts()).sum();
-                let total_power = cpu_power.unwrap_or(0.0) + nvidia_power + amd_power;
-                state.est_power_watts = if cpu_power.is_some() || nvidia_power > 0.0 || amd_power > 0.0 {
+                let nvidia_power = state.gpu_power_watts.values().filter(|&&v| v > 0.0).sum::<f64>();
+                let total_power = cpu_power.unwrap_or(0.0) + nvidia_power;
+                state.est_power_watts = if cpu_power.is_some() || nvidia_power > 0.0 {
                     Some(total_power)
                 } else {
                     None
